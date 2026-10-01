@@ -1,6 +1,14 @@
+import { CONTENT_V1 } from "./content-v1";
 import { CONTENT } from "./content";
 import { clone, DUNGEON_SCHEMA_VERSION } from "./types";
 import type { Dungeon, DungeonObject, ObjectType, Point } from "./types";
+import {
+  BUILDS,
+  THEMES,
+  isAdvancedObject,
+  parseConfig,
+  parseRules,
+} from "./configuration";
 
 export function inBounds(dungeon: Dungeon, p: Point): boolean {
   return (
@@ -24,7 +32,24 @@ export function objectAt(
 export function budgetUsed(dungeon: Dungeon): number {
   return (
     dungeon.tiles.reduce((sum, tile) => sum + tile, 0) +
-    dungeon.objects.reduce((sum, o) => sum + CONTENT[o.type].cost, 0)
+    dungeon.objects.reduce((sum, o) => {
+      const def =
+        dungeon.schemaVersion === 1 ? CONTENT_V1[o.type] : CONTENT[o.type];
+      const configurationCost =
+        dungeon.schemaVersion === 2 && o.config
+          ? Math.ceil(
+              Math.max(0, (o.config.hp ?? def.hp ?? 0) - (def.hp ?? 0)) / 20,
+            ) +
+            Math.ceil(
+              Math.max(
+                0,
+                (o.config.damage ?? def.damage ?? 0) - (def.damage ?? 0),
+              ) / 5,
+            ) +
+            Math.max(0, (o.config.range ?? def.range ?? 0) - (def.range ?? 0))
+          : 0;
+      return sum + def.cost + configurationCost;
+    }, 0)
   );
 }
 export function fingerprint(dungeon: Dungeon): string {
@@ -40,7 +65,7 @@ export function createDungeon(
   title = "Untitled dungeon",
 ): Dungeon {
   return {
-    schemaVersion: DUNGEON_SCHEMA_VERSION,
+    schemaVersion: 1,
     id,
     title,
     theme: "forgotten-cave",
@@ -90,7 +115,7 @@ export function parseDungeon(input: unknown): Dungeon {
   if (!input || typeof input !== "object")
     throw new Error("storage.invalidDungeon");
   const d = input as Dungeon;
-  if (d.schemaVersion !== DUNGEON_SCHEMA_VERSION)
+  if (![1, DUNGEON_SCHEMA_VERSION].includes(d.schemaVersion))
     throw new Error("storage.dungeonVersion");
   if (
     typeof d.id !== "string" ||
@@ -99,13 +124,14 @@ export function parseDungeon(input: unknown): Dungeon {
     typeof d.title !== "string" ||
     !d.title.trim() ||
     d.title.length > 60 ||
-    d.theme !== "forgotten-cave"
+    !THEMES.includes(d.theme) ||
+    (d.schemaVersion === 1 && d.theme !== "forgotten-cave")
   )
     throw new Error("storage.invalidDungeon");
   if (
     d.width !== 15 ||
-    d.height !== 13 ||
-    d.budget !== 160 ||
+    ![13, ...(d.schemaVersion === 2 ? [26, 39, 52] : [])].includes(d.height) ||
+    d.budget !== 160 * (d.height / 13) ||
     !Array.isArray(d.tiles) ||
     d.tiles.length !== d.width * d.height ||
     !d.tiles.every((t) => t === 0 || t === 1)
@@ -122,6 +148,7 @@ export function parseDungeon(input: unknown): Dungeon {
       !o.id.length ||
       o.id.length > 100 ||
       !Object.hasOwn(CONTENT, o.type) ||
+      (d.schemaVersion === 1 && isAdvancedObject(o.type)) ||
       !isFloor(d, o) ||
       !Number.isInteger(o.rotation) ||
       o.rotation < 0 ||
@@ -134,6 +161,23 @@ export function parseDungeon(input: unknown): Dungeon {
     positions.add(`${o.x},${o.y}`);
   }
   if (budgetUsed(d) > d.budget) throw new Error("editor.budgetExceeded");
+  if (
+    d.schemaVersion === 2 &&
+    d.build !== undefined &&
+    !Object.hasOwn(BUILDS, d.build)
+  )
+    throw new Error("storage.invalidConfiguration");
+  if (
+    d.objective &&
+    (d.schemaVersion !== 2 ||
+      !["treasure", "defeat-all", "survive", "escape"].includes(
+        d.objective.kind,
+      ) ||
+      !Number.isInteger(d.objective.ticks) ||
+      d.objective.ticks < 1 ||
+      d.objective.ticks > 2400)
+  )
+    throw new Error("storage.invalidConfiguration");
   return clone({
     schemaVersion: d.schemaVersion,
     id: d.id,
@@ -143,12 +187,26 @@ export function parseDungeon(input: unknown): Dungeon {
     height: d.height,
     budget: d.budget,
     tiles: d.tiles,
-    objects: d.objects.map(({ id, type, x, y, rotation }) => ({
+    ...(d.schemaVersion === 2
+      ? {
+          rules: parseRules(d.rules ?? [], d),
+          build: d.build ?? "warrior",
+          ...(d.objective
+            ? {
+                objective: { kind: d.objective.kind, ticks: d.objective.ticks },
+              }
+            : {}),
+        }
+      : {}),
+    objects: d.objects.map(({ id, type, x, y, rotation, config }) => ({
       id,
       type,
       x,
       y,
       rotation,
+      ...(d.schemaVersion === 2 && config !== undefined
+        ? { config: parseConfig(config, d) }
+        : {}),
     })),
   });
 }

@@ -8,8 +8,93 @@ import {
 } from "../src/core/dungeon";
 import { Editor } from "../src/core/editor";
 import { validateDungeon } from "../src/core/validation";
+import { identifyRooms } from "../src/core/rooms";
 
 describe("dungeon editor", () => {
+  it("transforms patrol routes with copies, moves and mirrors and rejects invalid routes atomically", () => {
+    const d = createDungeon();
+    d.schemaVersion = 2;
+    d.tiles.fill(1);
+    d.budget = 320;
+    d.objects = [
+      {
+        id: "guard",
+        type: "skeleton",
+        x: 2,
+        y: 2,
+        rotation: 1,
+        config: { patrol: [{ x: 3, y: 2 }] },
+      },
+    ];
+    const e = new Editor(d);
+    e.paste(e.copy(["guard"]), { x: 6, y: 4 });
+    const copied = e.dungeon.objects.find((o) => o.id !== "guard")!;
+    expect(copied.config?.patrol).toEqual([{ x: 7, y: 4 }]);
+    e.move([copied.id], { x: 1, y: 1 });
+    expect(e.dungeon.objects[1].config?.patrol).toEqual([{ x: 8, y: 5 }]);
+    e.mirror([copied.id], "horizontal");
+    expect(e.dungeon.objects[1].config?.patrol).toEqual([{ x: 6, y: 5 }]);
+    const before = fingerprint(e.dungeon);
+    expect(() => e.paste(e.copy(["guard"]), { x: 14, y: 12 })).toThrow(
+      "editor.needsFloor",
+    );
+    expect(fingerprint(e.dungeon)).toBe(before);
+  });
+  it("identifies chambers across a narrow corridor without merging floors", () => {
+    const d = createDungeon();
+    d.height = 26;
+    d.tiles = Array(390).fill(0);
+    for (const [left, top] of [
+      [1, 1],
+      [7, 1],
+      [1, 14],
+    ])
+      for (let y = top; y < top + 3; y++)
+        for (let x = left; x < left + 3; x++) d.tiles[y * d.width + x] = 1;
+    for (let x = 4; x < 7; x++) d.tiles[2 * d.width + x] = 1;
+    const rooms = identifyRooms(d);
+    expect(rooms.get("1,1")?.id).not.toBe(rooms.get("7,1")?.id);
+    expect(rooms.has("5,2")).toBe(false);
+    expect(rooms.get("1,14")?.floor).toBe(2);
+  });
+  it("copies linked mechanisms, remaps their wiring, and mirrors transactionally", () => {
+    const d = createDungeon();
+    d.schemaVersion = 2;
+    d.budget = 320;
+    d.tiles.fill(1);
+    d.objects = [
+      { id: "lever", type: "lever", x: 2, y: 2, rotation: 1 },
+      { id: "gate", type: "gate", x: 4, y: 2, rotation: 3 },
+    ];
+    d.rules = [
+      {
+        id: "wire",
+        source: "lever",
+        event: "OnActivate",
+        target: "gate",
+        action: "open",
+        delay: 0,
+      },
+    ];
+    const e = new Editor(d),
+      copy = e.copy(["lever", "gate"]);
+    e.paste(copy, { x: 2, y: 4 });
+    expect(e.dungeon.rules).toHaveLength(2);
+    const rule = e.dungeon.rules![1];
+    expect(rule.source).not.toBe("lever");
+    expect(e.dungeon.objects.find((o) => o.id === rule.target)?.y).toBe(4);
+    e.mirror([rule.source, rule.target], "horizontal");
+    expect(e.dungeon.objects.find((o) => o.id === rule.source)).toMatchObject({
+      x: 4,
+      y: 4,
+      rotation: 3,
+    });
+    e.undo();
+    expect(e.dungeon.objects.find((o) => o.id === rule.source)?.x).toBe(2);
+    const before = fingerprint(e.dungeon);
+    expect(() => e.paste(copy, { x: 2, y: 2 })).toThrow("editor.occupied");
+    expect(fingerprint(e.dungeon)).toBe(before);
+  });
   it("places a room transactionally and restores it with undo/redo", () => {
     const editor = new Editor(createDungeon("test"));
     editor.place("room", { x: 3, y: 3 });
@@ -109,6 +194,17 @@ describe("key-aware validation", () => {
     const dungeon = createStarter();
     dungeon.objects.find((o) => o.type === "skeleton")!.x = 3;
     dungeon.objects.find((o) => o.type === "skeleton")!.y = 2;
+    expect(
+      validateDungeon(dungeon).issues.some((i) => i.code === "spawn"),
+    ).toBe(true);
+  });
+  it("uses configured attack range when checking spawn safety", () => {
+    const dungeon = createStarter();
+    dungeon.schemaVersion = 2;
+    const enemy = dungeon.objects.find((o) => o.type === "skeleton")!;
+    enemy.x = 5;
+    enemy.y = 2;
+    enemy.config = { range: 6 };
     expect(
       validateDungeon(dungeon).issues.some((i) => i.code === "spawn"),
     ).toBe(true);

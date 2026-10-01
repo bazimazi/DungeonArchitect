@@ -1,9 +1,19 @@
-export const DUNGEON_SCHEMA_VERSION = 1;
-export const SIMULATION_VERSION = 1;
+import type {
+  AdvancedObjectType,
+  AdvancedState,
+  AdventurerBuild,
+  LogicRule,
+  ObjectConfig,
+  Theme,
+} from "./advanced-types";
+import type { RoomTool } from "./rooms";
+export const DUNGEON_SCHEMA_VERSION = 2;
+export const SIMULATION_VERSION = 2;
 export const TICK_MS = 250;
 export const MAX_TICKS = 2_400;
 
 export type ObjectType =
+  | AdvancedObjectType
   | "entrance"
   | "treasure"
   | "key"
@@ -15,8 +25,17 @@ export type ObjectType =
   | "slime"
   | "guardian"
   | "potion";
-export type Category = "rooms" | "traps" | "monsters" | "objects";
-export type Tool = "select" | "room" | "floor" | "wall" | "erase" | ObjectType;
+export type Category =
+  | "rooms"
+  | "traps"
+  | "monsters"
+  | "objects"
+  | "structural"
+  | "puzzle"
+  | "utility"
+  | "environment";
+export type Tool =
+  "select" | RoomTool | "floor" | "wall" | "erase" | ObjectType;
 export type Direction = "up" | "right" | "down" | "left";
 export interface Point {
   x: number;
@@ -26,17 +45,24 @@ export interface DungeonObject extends Point {
   id: string;
   type: ObjectType;
   rotation: number;
+  config?: ObjectConfig;
 }
 export interface Dungeon {
   schemaVersion: number;
   id: string;
   title: string;
-  theme: "forgotten-cave";
+  theme: Theme;
   width: number;
   height: number;
   budget: number;
   tiles: number[];
   objects: DungeonObject[];
+  rules?: LogicRule[];
+  build?: AdventurerBuild;
+  objective?: {
+    kind: "treasure" | "defeat-all" | "survive" | "escape";
+    ticks: number;
+  };
 }
 export interface ContentDefinition {
   id: ObjectType;
@@ -44,16 +70,29 @@ export interface ContentDefinition {
   descriptionKey: string;
   category: Category;
   cost: number;
-  behavior: "spawn" | "goal" | "key" | "door" | "trap" | "enemy" | "heal";
+  behavior:
+    | "spawn"
+    | "goal"
+    | "key"
+    | "door"
+    | "trap"
+    | "enemy"
+    | "heal"
+    | "mechanism"
+    | "environment"
+    | "loot";
   hp?: number;
   damage?: number;
   range?: number;
   cooldown?: number;
   color: string;
+  unlockLevel?: number;
 }
 export type Action =
   | { type: "move"; direction: Direction }
   | { type: "attack" }
+  | { type: "interact" }
+  | { type: "ability" }
   | { type: "wait" };
 export type RunStatus = "playing" | "completed" | "dead" | "abandoned";
 export interface GameEvent extends Point {
@@ -71,10 +110,19 @@ export interface GameEvent extends Point {
     | "heal"
     | "complete"
     | "death"
-    | "timeout";
+    | "timeout"
+    | "signal"
+    | "interact"
+    | "ability"
+    | "loot"
+    | "teleport"
+    | "environment"
+    | "phase"
+    | "quest";
   amount?: number;
   objectId?: string;
   reason?: string;
+  message?: string;
 }
 export interface EnemyState {
   id: string;
@@ -97,6 +145,7 @@ export interface RunState {
   status: RunStatus;
   damageTaken: number;
   events: GameEvent[];
+  advanced?: AdvancedState;
 }
 export interface Replay {
   schemaVersion: 1;

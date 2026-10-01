@@ -8,6 +8,9 @@ export interface Preferences {
   sound: boolean;
   reducedMotion: boolean;
   showGrid: boolean;
+  tutorialStep?: number;
+  contrast?: boolean;
+  textScale?: number;
 }
 export interface SaveData {
   schemaVersion: 1;

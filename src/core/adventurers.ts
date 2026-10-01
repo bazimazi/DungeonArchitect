@@ -3,6 +3,7 @@ import { isFloor, objectAt } from "./dungeon";
 import { nextRandom, Simulation } from "./simulation";
 import { DIRECTIONS, MAX_TICKS } from "./types";
 import type { Direction, Dungeon, Point, Replay } from "./types";
+import { simulateSystemicAdventurer } from "./systemic-adventurers";
 
 interface PathNode extends Point {
   key: boolean;
@@ -72,6 +73,8 @@ export function simulateAdventurer(
   seed: number,
   index: number,
 ): Replay {
+  if (dungeon.schemaVersion === 2)
+    return simulateSystemicAdventurer(dungeon, versionId, seed, index);
   const simulation = new Simulation(dungeon, seed);
   const cautions = [0, 0.8, 2, 5, 0.2, 3];
   const caution = cautions[index % cautions.length];

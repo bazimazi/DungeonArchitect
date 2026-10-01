@@ -32,7 +32,22 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
       goalIndex < 0
     )
       goalIndex = i;
-    for (const delta of Object.values(DIRECTIONS)) {
+    const currentObject = objectAt(dungeon, current);
+    const destination =
+      currentObject?.config?.target &&
+      ["stairs", "teleporter", "elevator"].includes(currentObject.type)
+        ? dungeon.objects.find((o) => o.id === currentObject.config!.target)
+        : undefined;
+    const deltas = Object.values(DIRECTIONS).filter(
+      (delta) =>
+        Math.floor((current.y + delta.y) / 13) === Math.floor(current.y / 13),
+    );
+    if (destination)
+      deltas.push({
+        x: destination.x - current.x,
+        y: destination.y - current.y,
+      });
+    for (const delta of deltas) {
       const next = {
         x: current.x + delta.x,
         y: current.y + delta.y,
@@ -41,7 +56,16 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
       };
       if (!isFloor(dungeon, next)) continue;
       const o = objectAt(dungeon, next);
-      if (o?.type === "door" && !current.key) continue;
+      if (
+        o?.type === "door" &&
+        !current.key &&
+        !dungeon.rules?.some(
+          (r) =>
+            r.target === o.id &&
+            ["open", "destroy", "activate", "toggle"].includes(r.action),
+        )
+      )
+        continue;
       if (o?.type === "key") next.key = true;
       const key = `${pointKey(next)}:${next.key}`;
       if (!seen.has(key)) {
@@ -54,16 +78,31 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
   for (const o of dungeon.objects)
     if (
       o.type === "door" &&
+      !dungeon.rules?.some(
+        (r) =>
+          r.target === o.id &&
+          ["open", "destroy", "activate", "toggle"].includes(r.action),
+      ) &&
       !queue.some((p) => p.key && p.x === o.x && p.y === o.y)
     )
       add("key", o);
+  for (const o of dungeon.objects)
+    if (
+      ["stairs", "teleporter", "elevator", "teleport-trap"].includes(o.type) &&
+      !dungeon.objects.some((target) => target.id === o.config?.target)
+    )
+      add("link", o);
   // The enemies are stationary in v1. A safe spawn has no immediate line of attack.
   const spawn = spawns[0];
   for (const o of dungeon.objects) {
     const def = CONTENT[o.type];
     if (def.behavior !== "enemy") continue;
     const distance = Math.abs(o.x - spawn.x) + Math.abs(o.y - spawn.y);
-    if (distance <= (def.range ?? 1) && (o.x === spawn.x || o.y === spawn.y)) {
+    if (
+      Math.floor(o.y / 13) === Math.floor(spawn.y / 13) &&
+      distance <= (o.config?.range ?? def.range ?? 1) &&
+      (o.x === spawn.x || o.y === spawn.y)
+    ) {
       let clear = true;
       const dx = Math.sign(spawn.x - o.x);
       const dy = Math.sign(spawn.y - o.y);

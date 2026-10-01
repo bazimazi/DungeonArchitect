@@ -1,8 +1,7 @@
-import type { ContentDefinition, ObjectType } from "./types";
-import { ADVANCED_CONTENT } from "./advanced-content";
+// Frozen content values used by simulation version 1. Never rebalance this file.
+import type { ContentDefinition } from "./types";
 
-export const CONTENT: Record<ObjectType, ContentDefinition> = {
-  ...ADVANCED_CONTENT,
+export const CONTENT_V1: Record<string, ContentDefinition> = {
   entrance: {
     id: "entrance",
     nameKey: "object.entrance",
