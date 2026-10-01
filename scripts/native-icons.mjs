@@ -1,5 +1,5 @@
 import { chromium } from "@playwright/test";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir, copyFile } from "node:fs/promises";
 const svg = await readFile(
   new URL("../public/icon.svg", import.meta.url),
   "utf8",
@@ -32,6 +32,27 @@ try {
       await page.screenshot({
         path: `android/app/src/main/res/mipmap-${density}/${name}.png`,
       });
+  }
+  await page.setViewportSize({ width: 2732, height: 2732 });
+  await page.setContent(
+    `<html><head><style>html,body{margin:0;width:100%;height:100%;background:#111a18}body{display:grid;place-content:center;text-align:center;color:#dfba79}svg{width:440px;height:440px;margin:auto}h1{font:80px Georgia;margin:48px 0 24px}p{font:24px sans-serif;letter-spacing:12px}</style></head><body>${svg}<h1>Dungeon Architect</h1><p>BUILD · PLAY · DISCOVER</p></body></html>`,
+  );
+  const splash =
+    "ios/App/App/Assets.xcassets/Splash.imageset/splash-2732x2732.png";
+  await page.screenshot({ path: splash });
+  for (const variant of ["splash-2732x2732-1.png", "splash-2732x2732-2.png"])
+    await copyFile(
+      splash,
+      `ios/App/App/Assets.xcassets/Splash.imageset/${variant}`,
+    );
+  for (const entry of await readdir("android/app/src/main/res", {
+    withFileTypes: true,
+  })) {
+    if (entry.isDirectory() && entry.name.startsWith("drawable")) {
+      const path = `android/app/src/main/res/${entry.name}`;
+      if ((await readdir(path)).includes("splash.png"))
+        await copyFile(splash, `${path}/splash.png`);
+    }
   }
 } finally {
   await browser.close();

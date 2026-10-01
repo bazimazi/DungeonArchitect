@@ -54,6 +54,8 @@ export interface DungeonCard {
     medianCompletionSeconds: number;
     averageDamage: number;
     retryRate: number;
+    returnEligiblePlayers: number;
+    returningPlayers: number;
   };
   id: string;
   sourceId: string;

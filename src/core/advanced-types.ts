@@ -73,6 +73,10 @@ export const ADVANCED_OBJECTS = [
   "resource",
   "cosmetic",
   "npc",
+  "camera-trigger",
+  "banner",
+  "statue",
+  "exit",
 ] as const;
 export type AdvancedObjectType = (typeof ADVANCED_OBJECTS)[number];
 export type SignalEvent =
@@ -189,6 +193,7 @@ export const BUILDS: Record<
   },
 };
 export interface AdvancedState {
+  camera: { x: number; y: number; span: number; until: number } | null;
   alliances: string[];
   supplies: Record<string, number>;
   build: AdventurerBuild;

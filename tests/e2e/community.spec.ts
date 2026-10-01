@@ -90,6 +90,13 @@ test("two architects publish, discover, challenge, complete, earn rewards and wa
   await expect(
     hub.getByRole("button", { name: "Unfavorite", exact: true }),
   ).toBeVisible();
+  await hub.getByRole("button", { name: "QR code", exact: true }).click();
+  await expect(
+    hub.getByRole("img", { name: "Scan to open this dungeon" }),
+  ).toBeVisible();
+  await hub
+    .getByRole("button", { name: "Back to dungeon", exact: true })
+    .click();
   await hub
     .getByRole("button", { name: "Follow creator", exact: true })
     .click();
@@ -182,5 +189,17 @@ test("two architects publish, discover, challenge, complete, earn rewards and wa
   await expect(hub.locator(".community-message")).toContainText(
     "Earn more currency",
   );
+  await hub.getByRole("button", { name: "Challenges", exact: true }).click();
+  await hub
+    .getByRole("button", { name: "Explore submissions", exact: true })
+    .first()
+    .click();
+  await hub
+    .getByLabel("Community category", { exact: true })
+    .selectOption("most-favorited");
+  await hub.getByRole("button", { name: "Show category", exact: true }).click();
+  await expect(
+    hub.getByRole("heading", { name: "Challenge submissions", exact: true }),
+  ).toBeVisible();
   expect(errors).toEqual([]);
 });

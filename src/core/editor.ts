@@ -86,7 +86,7 @@ export class Editor {
       } else {
         if (!isFloor(next, point)) throw new Error("editor.needsFloor");
         if (objectAt(next, point)) throw new Error("editor.occupied");
-        if (tool === "entrance" || tool === "treasure")
+        if (tool === "entrance" || tool === "treasure" || tool === "exit")
           next.objects = next.objects.filter((o) => o.type !== tool);
         next.objects.push({
           id: crypto.randomUUID(),
@@ -169,7 +169,7 @@ export class Editor {
       if (
         clipboard.objects.some(
           (o) =>
-            ["entrance", "treasure"].includes(o.type) &&
+            ["entrance", "treasure", "exit"].includes(o.type) &&
             d.objects.some((v) => v.type === o.type),
         )
       )

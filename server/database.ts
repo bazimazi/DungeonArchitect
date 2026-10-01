@@ -126,6 +126,10 @@ export class Database {
       CREATE TABLE IF NOT EXISTS attempt_secrets(attempt_id TEXT PRIMARY KEY REFERENCES attempts(id),count INTEGER NOT NULL);
       INSERT OR IGNORE INTO migrations VALUES(8,datetime('now'));
       INSERT OR IGNORE INTO migrations VALUES(9,datetime('now'));
+      CREATE TABLE IF NOT EXISTS discovery_exposures(version_id TEXT NOT NULL REFERENCES versions(id),viewer_id TEXT NOT NULL REFERENCES users(id),first_seen TEXT NOT NULL,PRIMARY KEY(version_id,viewer_id));
+      INSERT OR IGNORE INTO migrations VALUES(10,datetime('now'));
+      CREATE INDEX IF NOT EXISTS attempts_version_player_time ON attempts(version_id,player_id,created_at);
+      INSERT OR IGNORE INTO migrations VALUES(11,datetime('now'));
     `);
   }
 }

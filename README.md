@@ -40,7 +40,7 @@ Offline editing/testing requires no account. Open the production website once to
 
 ## Implemented systems
 
-Four connected floors, 72 object types, eight themes, five normalized adventurer builds, configurable monsters/bosses, environmental interactions, event/condition/action logic, NPC quests and resources, and eight templates. The editor includes transactional history, wiring-preserving duplication, patrol-aware transforms, and layers.
+Four connected floors, 76 object types, eight themes, five normalized adventurer builds, configurable monsters/bosses, environmental interactions, event/condition/action logic, NPC quests and resources, eight templates, and optional collect-and-exit objectives. The editor includes transactional history, wiring-preserving duplication, patrol-aware transforms, and layers.
 
 Community features include accounts, discovery, profiles, follows/favorites, QR/share codes, friend challenges, leaderboards, progression, earned cosmetics, rotating challenges, moderation, cloud drafts, shared revision-checked workshops, branching campaigns, and guild world collections. Online results and rewards are server verified.
 

@@ -24,6 +24,7 @@ import {
   screenText,
 } from "./policies";
 import { ProgressionService } from "./progression";
+import { audienceLimit } from "./discovery";
 
 export interface DungeonRow {
   id: string;
@@ -414,6 +415,22 @@ export class DungeonService {
       "SELECT COUNT(*) count FROM (SELECT 1 FROM version_routes WHERE version_id=? LIMIT 2)",
       version.id,
     )!.count;
+    // Observe a complete seven-day window. Same-session retries and the author
+    // are excluded; a later verified adventure anywhere counts as returning.
+    const retention = this.db.get<{ eligible: number; returned: number }>(
+      `SELECT COUNT(*) eligible,COALESCE(SUM(EXISTS(
+        SELECT 1 FROM attempts later WHERE later.player_id=cohort.player_id
+        AND later.created_at>=strftime('%Y-%m-%dT%H:%M:%fZ',cohort.first_play,'+1 day')
+        AND later.created_at<=strftime('%Y-%m-%dT%H:%M:%fZ',cohort.first_play,'+7 days')
+      )),0) returned FROM (
+        SELECT player_id,MIN(created_at) first_play FROM attempts
+        WHERE version_id=? AND player_id<>? GROUP BY player_id
+        HAVING MIN(created_at)<=?
+      ) cohort`,
+      version.id,
+      row.owner_id,
+      new Date(this.now().getTime() - 7 * 86400000).toISOString(),
+    )!;
     return {
       calibration: {
         medianCompletionSeconds: median,
@@ -421,6 +438,8 @@ export class DungeonService {
         retryRate: stats.attempts
           ? (1 - stats.players / stats.attempts) * 100
           : 0,
+        returnEligiblePlayers: retention.eligible,
+        returningPlayers: retention.returned,
       },
       id: row.id,
       sourceId: row.source_id,
@@ -546,12 +565,53 @@ export class DungeonService {
         next: page.length > limit ? offset + limit : null,
       };
     }
-    // Ranked collections use a bounded candidate pool; exact search is applied before the bound.
-    const rows = this.db.all<DungeonRow>(
-      `SELECT d.* FROM dungeons d JOIN users u ON u.id=d.owner_id WHERE ${clauses.join(" AND ")} ORDER BY d.updated_at DESC LIMIT 1000`,
+    // Combine fresh work with older work receiving recent play; never rank only the newest layouts.
+    const recent = this.db.all<DungeonRow>(
+      `SELECT d.* FROM dungeons d JOIN users u ON u.id=d.owner_id WHERE ${clauses.join(" AND ")} ORDER BY d.updated_at DESC,d.id LIMIT 500`,
       ...bindings,
     );
+    const active = this.db.all<DungeonRow>(
+      `SELECT d.* FROM dungeons d JOIN users u ON u.id=d.owner_id WHERE ${clauses.join(" AND ")} AND EXISTS(SELECT 1 FROM attempts a WHERE a.version_id=d.latest_version_id AND a.created_at>=?) ORDER BY (SELECT COUNT(*) FROM attempts a WHERE a.version_id=d.latest_version_id AND a.created_at>=?) DESC,d.id LIMIT 500`,
+      ...bindings,
+      new Date(this.now().getTime() - 7 * 86400000).toISOString(),
+      new Date(this.now().getTime() - 7 * 86400000).toISOString(),
+    );
+    const rows = [
+      ...new Map([...recent, ...active].map((row) => [row.id, row])).values(),
+    ];
     let cards = rows.map((row) => this.card(row, viewer?.id));
+    const exposures = new Map<string, { count: number; seen: number }>();
+    if (category === "recommended" && viewer && cards.length) {
+      for (const row of this.db.all<{
+        version: string;
+        count: number;
+        seen: number;
+      }>(
+        `SELECT version_id version,COUNT(*) count,MAX(viewer_id=?) seen FROM discovery_exposures WHERE version_id IN (${cards.map(() => "?").join(",")}) GROUP BY version_id`,
+        viewer.id,
+        ...cards.map((c) => c.versionId),
+      ))
+        exposures.set(row.version, row);
+      const audience = new Map(
+        this.db
+          .all<{ version: string; players: number; clearers: number }>(
+            `SELECT a.version_id version,COUNT(DISTINCT a.player_id) players,COUNT(DISTINCT CASE WHEN a.outcome='completed' THEN a.player_id END) clearers FROM attempts a JOIN versions v ON v.id=a.version_id JOIN dungeons d ON d.id=v.dungeon_id WHERE a.version_id IN (${cards.map(() => "?").join(",")}) AND a.player_id<>d.owner_id GROUP BY a.version_id`,
+            ...cards.map((c) => c.versionId),
+          )
+          .map((r) => [r.version, r]),
+      );
+      cards = cards.filter(
+        (c) =>
+          c.following ||
+          c.ownerId === viewer.id ||
+          exposures.get(c.versionId)?.seen ||
+          (exposures.get(c.versionId)?.count ?? 0) <
+            audienceLimit({
+              ...(audience.get(c.versionId) ?? { players: 0, clearers: 0 }),
+              reactions: c.likes + c.favorites,
+            }),
+      );
+    }
     const interests: string[] = viewer ? JSON.parse(viewer.interests) : [];
     const history = viewer
       ? this.db.all<{
@@ -614,6 +674,8 @@ export class DungeonService {
         Math.log2(1 + card.attempts) * 2 +
         card.likes +
         card.favorites * 2 +
+        (8 * card.calibration.returningPlayers) /
+          (card.calibration.returnEligiblePlayers + 5) +
         card.tags.filter((t) => interests.includes(t)).length * 15 +
         (card.following ? 10 : 0) +
         (completed.has(card.versionId) ? -15 : 0) +
@@ -624,7 +686,9 @@ export class DungeonService {
               10 - Math.abs(card.averageSeconds - preferredSeconds) / 10,
             )
           : 0) +
-        (card.attempts < 10 ? 20 : 0) +
+        ((exposures.get(card.versionId)?.count ?? 0) < 20 && card.attempts < 10
+          ? 20
+          : 0) +
         12 / Math.sqrt(ageHours)
       );
     };
@@ -645,8 +709,19 @@ export class DungeonService {
         })
         .concat(overflow);
     }
+    const items = cards.slice(offset, offset + limit);
+    if (category === "recommended" && viewer)
+      this.db.transaction(() => {
+        for (const card of items)
+          this.db.run(
+            "INSERT OR IGNORE INTO discovery_exposures VALUES(?,?,?)",
+            card.versionId,
+            viewer.id,
+            this.now().toISOString(),
+          );
+      });
     return {
-      items: cards.slice(offset, offset + limit),
+      items,
       next: offset + limit < cards.length ? offset + limit : null,
     };
   }

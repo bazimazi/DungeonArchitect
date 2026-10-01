@@ -27,9 +27,15 @@ const button = (action: string, label: string, value = "") =>
   >
     ${esc(label)}
   </button>`;
-const field = (label: string, name: string, value = "", max = 60, required = true) =>
+const field = (
+  label: string,
+  name: string,
+  value = "",
+  max = 60,
+  required = true,
+) =>
   html`<label
-    >${label}<input
+    >${esc(msg(label))}<input
       name="${name}"
       value="${esc(value)}"
       ${required ? "required" : ""}
@@ -59,8 +65,8 @@ export class CommunityExtras {
       );
       return html`<article class="season-banner panel">
           <p class="eyebrow">SEASONAL INSPIRATION</p>
-          <h2>${shop.season.title}</h2>
-          <p>${shop.season.description}</p>
+          <h2>${esc(msg(shop.season.title))}</h2>
+          <p>${esc(msg(shop.season.description))}</p>
           <p>Seasonal mechanics remain available in your workshop.</p>
         </article>
         <h2>Architect collection</h2>
@@ -75,9 +81,9 @@ export class CommunityExtras {
                 <div class="cosmetic-preview" style="--banner:${c.color}">
                   ◇
                 </div>
-                <h3>${c.name}</h3>
+                <h3>${esc(msg(c.name))}</h3>
                 <p>
-                  ${[c.gold ? `${c.gold} gold` : "", c.materials ? `${c.materials} materials` : "", c.essence ? `${c.essence} essence` : ""].filter(Boolean).join(" · ")}
+                  ${[c.gold ? msg("{count} gold", { count: c.gold }) : "", c.materials ? msg("{count} materials", { count: c.materials }) : "", c.essence ? msg("{count} essence", { count: c.essence }) : ""].filter(Boolean).map(esc).join(" · ")}
                 </p>
                 ${shop.inventory?.equipped === c.id ? html`<p>Equipped</p>` : button(shop.inventory?.owned.includes(c.id) ? "equip" : "buy", shop.inventory?.owned.includes(c.id) ? msg("Equip banner") : msg("Unlock banner"), c.id)}
               </article>`,
@@ -117,7 +123,7 @@ export class CommunityExtras {
                 class="community-form"
               >
                 <h2>New campaign</h2>
-                ${field(msg("Campaign title"), "title")}${field("Premise", "description", "", 1000)}<button
+                ${field(msg("Campaign title"), "title")}${field(msg("Premise"), "description", "", 1000)}<button
                   class="button primary"
                 >
                   Create campaign
@@ -201,7 +207,7 @@ export class CommunityExtras {
       <div class="community-columns">
         <form data-form="extras:create-guild" class="community-form">
           <h3>Create a guild</h3>
-          ${field(msg("Guild name"), "name")}${field("Description", "description", "", 500)}<button
+          ${field(msg("Guild name"), "name")}${field(msg("Description"), "description", "", 500)}<button
             class="button primary"
           >
             Create guild
@@ -240,7 +246,7 @@ export class CommunityExtras {
                 const progress = c.progress!.find((p) => p.nodeId === n.id)!;
                 return html`<article class="panel">
                   <p class="eyebrow">
-                    ${n.requires ? `AFTER ${esc(c.nodes.find((p) => p.id === n.requires)?.title)} · ${n.condition}` : msg("START HERE")}${progress.completed ? " · CLEARED" : ""}
+                    ${n.requires ? esc(msg("AFTER {chapter} · {condition}", { chapter: c.nodes.find((p) => p.id === n.requires)?.title ?? "", condition: msg(n.condition) })) : msg("START HERE")}${progress.completed ? " · " + msg("CLEARED") : ""}
                   </p>
                   <h3>${esc(n.title)}</h3>
                   <p>${esc(n.story)}</p>

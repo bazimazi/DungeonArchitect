@@ -13,6 +13,46 @@ import {
 import { validateDungeon } from "../src/core/validation";
 import type { Dungeon, DungeonObject, ObjectType } from "../src/core/types";
 import { ADVANCED_OBJECTS } from "../src/core/advanced-types";
+import { cameraFrame } from "../src/ui/camera";
+import { simulateAdventurer } from "../src/core/adventurers";
+
+it("requires the main treasure before an optional exit and reproduces the escape in replay and bot tests", () => {
+  const d = arena();
+  add(d, "exit", 2, 2);
+  const sim = new Simulation(d, 17);
+  sim.step({ type: "move", direction: "right" });
+  expect(sim.state.status).toBe("playing");
+  for (let i = 0; i < 8; i++) sim.step({ type: "move", direction: "right" });
+  expect(sim.state.status).toBe("playing");
+  for (let i = 0; i < 8; i++) sim.step({ type: "move", direction: "left" });
+  expect(sim.state.status).toBe("completed");
+  expect(reconstructReplay(sim.replay()).state).toEqual(sim.state);
+  expect(
+    reconstructReplay(simulateAdventurer(d, "draft", 17, 3)).state.status,
+  ).toBe("completed");
+  const exit = d.objects.find((o) => o.type === "exit")!;
+  exit.x = 14;
+  exit.y = 12;
+  d.tiles[12 * 15 + 14] = 1;
+  expect(validateDungeon(d).issues.some((i) => i.code === "unreachable")).toBe(
+    true,
+  );
+});
+
+it("records camera triggers deterministically and restores room framing after they expire", () => {
+  const d = arena(),
+    landmark = add(d, "statue", 7, 3);
+  add(d, "camera-trigger", 2, 2, { target: landmark.id, range: 6, delay: 2 });
+  const sim = new Simulation(d, 19);
+  sim.step({ type: "move", direction: "right" });
+  expect(cameraFrame(d, sim.state)).toEqual({ x: 7, y: 3, zoom: 2.5 });
+  const replay = sim.replay();
+  expect(reconstructReplay(replay).state).toEqual(sim.state);
+  sim.step({ type: "wait" });
+  sim.step({ type: "wait" });
+  expect(cameraFrame(d, sim.state).zoom).toBeLessThan(2.5);
+  expect(sim.state.player.hp).toBe(sim.state.player.maxHp);
+});
 
 function arena(): Dungeon {
   const d = createDungeon("systems", "Mechanism laboratory");

@@ -32,7 +32,7 @@ Backups contain password hashes, sessions, private drafts and gameplay records. 
 
 Tests cover editor transactions/transforms, validation, deterministic v1/v2 replay, environments/logic/bosses, template bots, permissions, publishing/versioning, rewards, moderation, campaigns, shared conflicts, cosmetics, localization escaping and persistence. Browser flows cover desktop, mobile, 320 px layout, gestures, offline reload and two-account online play.
 
-npm run benchmark seeds 10,000 dungeons and 100,000 attempts into an isolated database with ten samples per route. After adding a per-version completion index, measured medians on this workstation were 4.4 ms New, 27.3 ms Recommended, 188 ms global leaderboards and 1.0 ms recordings. These exclude production network/contention and are not capacity guarantees. npm run test:load sends 100 real HTTP requests at concurrency 10 to BASE_URL.
+npm run benchmark seeds 10,000 dungeons and 100,000 attempts into an isolated database with ten samples per route. After adding a per-version completion index, measured medians on this workstation were 4.3 ms New, 39.2 ms Recommended, 190.7 ms global leaderboards and 0.8 ms recordings. These exclude production network/contention and are not capacity guarantees. npm run test:load sends 100 real HTTP requests at concurrency 10 to BASE_URL.
 
 ## Native verification
 

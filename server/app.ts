@@ -120,7 +120,12 @@ export async function buildServer(options: ServerOptions = {}) {
   const loginRate = {
     config: { rateLimit: { max: 10, timeWindow: "1 minute" } },
   };
-  app.get("/api/health", async () => ({ status: "ok", schema: 1 }));
+  app.get("/api/health", async () => ({
+    status: "ok",
+    schema: db.get<{ version: number }>(
+      "SELECT MAX(version) version FROM migrations",
+    )!.version,
+  }));
   app.post("/api/usage", async (request) => {
     const body = objectBody(request.body);
     if (
@@ -442,8 +447,19 @@ export async function buildServer(options: ServerOptions = {}) {
   }));
   app.get("/api/challenges/:id/submissions", async (request) => {
     const viewer = auth.user(request, false);
+    const sort = String(
+      (request.query as Record<string, unknown>).sort ?? "new",
+    );
+    const order =
+      sort === "most-attempted"
+        ? "(SELECT COUNT(*) FROM attempts a WHERE a.version_id=s.version_id) DESC"
+        : sort === "most-played"
+          ? "(SELECT COUNT(DISTINCT player_id) FROM attempts a WHERE a.version_id=s.version_id) DESC"
+          : sort === "most-favorited"
+            ? "(SELECT COUNT(*) FROM reactions r WHERE r.dungeon_id=v.dungeon_id AND r.kind='favorite') DESC"
+            : "s.created_at DESC";
     const ids = db.all<{ dungeon_id: string; version_id: string }>(
-      "SELECT v.dungeon_id,s.version_id FROM challenge_submissions s JOIN versions v ON v.id=s.version_id WHERE s.challenge_id=? ORDER BY s.created_at DESC LIMIT 100",
+      `SELECT v.dungeon_id,s.version_id FROM challenge_submissions s JOIN versions v ON v.id=s.version_id JOIN dungeons d ON d.id=v.dungeon_id JOIN users u ON u.id=d.owner_id WHERE s.challenge_id=? AND d.lifecycle='published' AND d.visibility='public' AND u.status='active' ORDER BY ${order},s.version_id LIMIT 100`,
       params(request).id,
     );
     return ids.flatMap((row) => {

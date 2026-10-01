@@ -50,6 +50,7 @@ export class Systems {
     const build = dungeon.build ?? "warrior";
     state.player.hp = state.player.maxHp = BUILDS[build].health;
     this.a = state.advanced = {
+      camera: null,
       alliances: [],
       supplies: {},
       build,
@@ -193,6 +194,7 @@ export class Systems {
     else this.a.signalOverflow = true;
   }
   private setActive(o: DungeonObject, enabled: boolean): void {
+    if (enabled && o.type === "camera-trigger") this.focusCamera(o);
     if (this.a.active[o.id] === enabled) return;
     this.a.active[o.id] = enabled;
     if (enabled && ["timer", "repeater"].includes(o.type))
@@ -502,9 +504,21 @@ export class Systems {
     Object.assign(this.state.player, { x: target.x, y: target.y });
     this.emit("teleport", target, { objectId: source.id });
   }
+  private focusCamera(o: DungeonObject): void {
+    const target = this.object(o.config?.target ?? o.id) ?? o;
+    if (Math.floor(target.y / 13) !== Math.floor(this.state.player.y / 13))
+      return;
+    this.a.camera = {
+      x: target.x,
+      y: target.y,
+      span: Math.max(3, o.config?.range ?? 6),
+      until: this.state.tick + (o.config?.delay ?? 8),
+    };
+  }
   private enter(o: DungeonObject): void {
     const p = this.state.player;
     this.signal(o.id, "OnEnter");
+    if (o.type === "camera-trigger" && this.a.active[o.id]) this.focusCamera(o);
     if (o.type === "door" && !this.state.opened.includes(o.id)) {
       this.state.opened.push(o.id);
       this.emit("door", p, { objectId: o.id });
@@ -547,7 +561,16 @@ export class Systems {
       this.state.collected.push(o.id);
       this.emit("loot", p, { objectId: o.id, reason: o.type });
     }
-    if (o.type === "treasure") {
+    if (
+      o.type === "exit" &&
+      !this.dungeon.objects.some(
+        (v) => v.type === "treasure" && this.state.collected.includes(v.id),
+      )
+    ) {
+      this.emit("blocked", p, { reason: "treasure-required" });
+      return;
+    }
+    if (o.type === "treasure" || o.type === "exit") {
       const goal = this.dungeon.objective;
       if (
         (goal?.kind === "defeat-all" &&
@@ -561,7 +584,14 @@ export class Systems {
               ? "Defeat all monsters before claiming the treasure."
               : `Survive until turn ${goal.ticks}.`,
         });
-      else {
+      else if (
+        o.type === "treasure" &&
+        this.dungeon.objects.some((v) => v.type === "exit")
+      ) {
+        this.state.collected.push(o.id);
+        this.emit("loot", p, { objectId: o.id, reason: "main-treasure" });
+        this.signal(o.id, "OnTrigger");
+      } else {
         this.state.status = "completed";
         this.emit("complete", p, { objectId: o.id });
       }

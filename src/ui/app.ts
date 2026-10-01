@@ -1,4 +1,5 @@
 import { html, msg } from "./localization";
+import { cameraFrame } from "./camera";
 import { ROOM_TOOLS } from "../core/rooms";
 import type { RoomTool } from "../core/rooms";
 import { TEMPLATES, createTemplate } from "../core/templates";
@@ -175,6 +176,9 @@ export class App {
     playerId: string;
     actions: Action[];
     abandon: boolean;
+    replay?: Replay;
+    expiresAt?: string;
+    lastError?: string;
   }[] = [];
 
   constructor(private root: HTMLDivElement) {
@@ -183,6 +187,15 @@ export class App {
         localStorage.getItem("da.online-outbox") ?? "[]",
       );
       if (!Array.isArray(this.outbox)) this.outbox = [];
+      this.outbox = this.outbox.filter(
+        (r) =>
+          r &&
+          typeof r.id === "string" &&
+          typeof r.playerId === "string" &&
+          Array.isArray(r.actions) &&
+          r.actions.length <= 2400 &&
+          typeof r.abandon === "boolean",
+      );
     } catch {
       this.outbox = [];
     }
@@ -515,7 +528,7 @@ export class App {
         <footer class="site-footer">
           <span>${icon("castle")}${t("app.tagline")}</span>
           <div>
-            ${button("advanced", msg("Advanced workshop"), "grid", "quiet small")}${button("logic", msg("Visual logic"), "objects", "quiet small")}${this.selected.length === 1 ? button("configure", msg("Object settings"), "select", "quiet small") : ""}${button("community", "Community", "castle", "quiet small")}${button("publish-online", msg("Publish online"), "flag", "quiet small")}${this.outbox.length ? button("sync-runs", msg("Sync pending runs"), "upload", "quiet small") : ""}${button("guide", t("nav.guide"), "book", "quiet small")}${button("import", t("action.import"), "upload", "quiet small mobile-only")}${button("export", t("action.export"), "download", "quiet small")}${button("layers", msg("Layers"), undefined, "quiet small")}${this.clipboard ? button("paste", msg("Paste"), undefined, "quiet small") : ""}${button("usage", msg("Usage analytics"), undefined, "quiet small")}${button("backups", msg("Recover a draft"), "book", "quiet small")}${button("tutorial", msg("First steps"), "book", "quiet small")}${button("contrast", msg("High contrast"), undefined, "quiet small")}${button("text-size", msg("Larger text"), undefined, "quiet small")}${button("motion", t("action.motion"), undefined, `quiet small ${this.library.data.preferences.reducedMotion ? "active" : ""}`)}
+            ${button("advanced", msg("Advanced workshop"), "grid", "quiet small")}${button("logic", msg("Visual logic"), "objects", "quiet small")}${this.selected.length === 1 ? button("configure", msg("Object settings"), "select", "quiet small") : ""}${button("community", msg("Community"), "castle", "quiet small")}${button("publish-online", msg("Publish online"), "flag", "quiet small")}${this.outbox.length ? button("sync-runs", msg("Sync pending runs"), "upload", "quiet small") : ""}${button("guide", t("nav.guide"), "book", "quiet small")}${button("import", t("action.import"), "upload", "quiet small mobile-only")}${button("export", t("action.export"), "download", "quiet small")}${button("layers", msg("Layers"), undefined, "quiet small")}${this.clipboard ? button("paste", msg("Paste"), undefined, "quiet small") : ""}${button("usage", msg("Usage analytics"), undefined, "quiet small")}${button("backups", msg("Recover a draft"), "book", "quiet small")}${button("tutorial", msg("First steps"), "book", "quiet small")}${button("contrast", msg("High contrast"), undefined, "quiet small")}${button("text-size", msg("Larger text"), undefined, "quiet small")}${button("motion", t("action.motion"), undefined, `quiet small ${this.library.data.preferences.reducedMotion ? "active" : ""}`)}
           </div>
         </footer>
       </main>`;
@@ -537,7 +550,13 @@ export class App {
       "monsters",
       "objects",
       ...(this.editor.dungeon.schemaVersion === 2
-        ? (["structural", "puzzle", "utility", "environment"] as Category[])
+        ? ([
+            "structural",
+            "puzzle",
+            "utility",
+            "environment",
+            "decor",
+          ] as Category[])
         : []),
     ];
     const tools: Tool[] =
@@ -724,12 +743,13 @@ export class App {
         ),
       },
     ];
-    return (
-      lessons[this.library.data.preferences.tutorialStep ?? -1] ?? {
-        title: t("insight.heading"),
-        body: t("insight.body"),
-      }
-    );
+    const lesson = lessons[
+      this.library.data.preferences.tutorialStep ?? -1
+    ] ?? {
+      title: t("insight.heading"),
+      body: t("insight.body"),
+    };
+    return { title: msg(lesson.title), body: msg(lesson.body) };
   }
   private testSidebar(): string {
     return html`<div class="panel-heading">
@@ -781,6 +801,7 @@ export class App {
       ${
         advanced
           ? html`<section class="panel run-inventory">
+              ${this.activeDungeon.objects.some((o) => o.type === "exit") ? html`<p>${this.activeDungeon.objects.some((o) => o.type === "treasure" && state.collected.includes(o.id)) ? msg("Treasure secured. Reach the exit.") : msg("Secure the main treasure, then escape through the exit.")}</p>` : ""}
               <h3>${msg(advanced.build)} inventory</h3>
               <p>
                 ${Object.entries(advanced.loot)
@@ -1198,7 +1219,7 @@ export class App {
           action === "publish-online" ? "publish" : "discover",
         );
       } else if (action === "sync-runs") {
-        void this.flushOutbox();
+        this.showPendingRuns();
       } else if (action === "build") {
         this.recordTest();
         this.communityAnalysis = null;
@@ -1758,6 +1779,11 @@ export class App {
           playerId: this.communityApi.player!.id,
           actions: [...this.simulation.actions],
           abandon: this.simulation.state.status === "playing",
+          replay: this.simulation.replay(
+            this.communityApi.player!.displayName,
+            this.onlineTicket.versionId,
+          ),
+          expiresAt: this.onlineTicket.expiresAt,
         });
         this.persistOutbox();
         this.onlineMessage = msg("Verifying your adventure...");
@@ -1796,6 +1822,36 @@ export class App {
     this.render();
     this.renderer.fit();
   }
+  private showPendingRuns(): void {
+    this.showDialog(
+      html`<h2>Saved adventures</h2>
+        <p>
+          Retry verification after connecting and signing in to the original
+          account. Expired or rejected runs can be kept as local replays.
+        </p>
+        ${button("retry-runs", msg("Retry verification"), "upload", "primary full")}
+        ${
+          this.outbox
+            .map(
+              (r) =>
+                html`<article class="panel">
+                  <h3>
+                    ${escape(r.replay?.dungeon.title ?? msg("Saved run"))}
+                  </h3>
+                  <p>
+                    ${escape(r.lastError ?? msg("Waiting for verification"))}
+                  </p>
+                  <p>
+                    ${r.actions.length}
+                    ${msg("recorded turns")}${r.expiresAt && Date.parse(r.expiresAt) < Date.now() ? " · " + msg("Ticket expired") : ""}
+                  </p>
+                  ${r.replay ? button(`recover-run:${r.id}`, msg("Keep local replay"), "eye", "outline") : ""}${button(`discard-run:${r.id}`, msg("Remove queued run"), undefined, "quiet")}
+                </article>`,
+            )
+            .join("") || html`<p>No pending adventures.</p>`
+        }`,
+    );
+  }
   private persistOutbox(): void {
     try {
       localStorage.setItem("da.online-outbox", JSON.stringify(this.outbox));
@@ -1824,9 +1880,22 @@ export class App {
           );
           this.outbox = this.outbox.filter((item) => item.id !== run.id);
           this.persistOutbox();
-          this.onlineMessage = `Verified ${result.outcome}. +${result.rewards.xp} XP | +${result.rewards.gold} gold | +${result.rewards.materials} materials`;
+          this.onlineMessage = msg(
+            "Verified {outcome}. +{xp} XP | +{gold} gold | +{materials} materials",
+            {
+              outcome: msg(result.outcome),
+              xp: result.rewards.xp,
+              gold: result.rewards.gold,
+              materials: result.rewards.materials,
+            },
+          );
           this.toast(this.onlineMessage);
-        } catch {
+        } catch (error) {
+          run.lastError =
+            error instanceof Error
+              ? error.message
+              : msg("Verification failed.");
+          this.persistOutbox();
           failed++;
         }
       }
@@ -1949,6 +2018,7 @@ export class App {
     ) {
       const state = this.simulation.state,
         p = state.player;
+      const frame = cameraFrame(this.activeDungeon, state);
       const boss = state.enemies.some((e) => {
         const o = this.activeDungeon.objects.find((o) => o.id === e.id);
         const position = state.advanced?.positions[e.id] ?? o;
@@ -1965,17 +2035,17 @@ export class App {
           ? 1.5
           : p.hp < p.maxHp / 3
             ? 1.3
-            : 1.12;
+            : frame.zoom;
       const blend = this.reducedMotion ? 1 : Math.min(1, delta / 160);
       this.renderer.zoom += (target - this.renderer.zoom) * blend;
       const z = this.renderer.zoom,
         x = Math.max(
           -(z - 1) * 384,
-          Math.min((z - 1) * 384, z * (384 - (48 + p.x * 48))),
+          Math.min((z - 1) * 384, z * (384 - (48 + frame.x * 48))),
         ),
         y = Math.max(
           -(z - 1) * 336,
-          Math.min((z - 1) * 336, z * (336 - (48 + (p.y % 13) * 48))),
+          Math.min((z - 1) * 336, z * (336 - (48 + (frame.y % 13) * 48))),
         );
       this.renderer.pan.x += (x - this.renderer.pan.x) * blend;
       this.renderer.pan.y += (y - this.renderer.pan.y) * blend;
@@ -2041,7 +2111,7 @@ export class App {
           floor painting while leaving the floor visible for orientation.
         </p>
         <div class="community-actions">
-          ${(["rooms", "traps", "monsters", "objects", "structural", "puzzle", "utility", "environment"] as Category[]).map((layer) => html`<button class="button outline" data-action="layer:${layer}" aria-pressed="${!this.hiddenLayers.has(layer)}">${msg(layer)}: ${this.hiddenLayers.has(layer) ? msg("Hidden / locked") : msg("Visible / editable")}</button>`).join("")}
+          ${(["rooms", "traps", "monsters", "objects", "structural", "puzzle", "utility", "environment", "decor"] as Category[]).map((layer) => html`<button class="button outline" data-action="layer:${layer}" aria-pressed="${!this.hiddenLayers.has(layer)}">${msg(layer)}: ${this.hiddenLayers.has(layer) ? msg("Hidden / locked") : msg("Visible / editable")}</button>`).join("")}
         </div>`,
     );
   }
@@ -2124,8 +2194,8 @@ export class App {
                     data-action="template:${v.id}"
                   >
                     <span
-                      ><strong>${v.name}</strong
-                      ><small>${v.description}</small></span
+                      ><strong>${escape(msg(v.name))}</strong
+                      ><small>${escape(msg(v.description))}</small></span
                     >
                   </button>`,
               )
@@ -2148,6 +2218,52 @@ export class App {
         "[data-action]",
       )?.dataset.action;
       if (!action) return;
+      if (action === "retry-runs") {
+        this.dialog.close();
+        void this.flushOutbox().then(() => this.showPendingRuns());
+        return;
+      }
+      if (action.startsWith("recover-run:")) {
+        const run = this.outbox.find((r) => r.id === action.slice(12));
+        if (!run?.replay) return;
+        try {
+          this.library.recordPractice(run.replay);
+          if (this.library.warning) throw new Error("storage.saveFailed");
+          this.dialog.close();
+          this.openReplay(run.replay.id);
+          this.toast(
+            msg(
+              "Saved as a local replay. Server verification is still pending.",
+            ),
+          );
+        } catch (error) {
+          this.toast(errorText(error), true);
+        }
+        return;
+      }
+      if (action.startsWith("discard-run:")) {
+        const id = action.slice(12);
+        this.showDialog(
+          html`<h2>Remove this queued run?</h2>
+            <p>
+              This stops verification retries. Keep a local replay first if you
+              want to watch it later.
+            </p>
+            ${button(`confirm-discard-run:${id}`, msg("Remove queued run"), undefined, "primary full")}${button("pending-runs", msg("Keep queued run"), undefined, "outline full")}`,
+        );
+        return;
+      }
+      if (action.startsWith("confirm-discard-run:")) {
+        this.outbox = this.outbox.filter((r) => r.id !== action.slice(20));
+        this.persistOutbox();
+        this.showPendingRuns();
+        this.render();
+        return;
+      }
+      if (action === "pending-runs") {
+        this.showPendingRuns();
+        return;
+      }
       if (action.startsWith("context:")) {
         this.dialog.close();
         this.root

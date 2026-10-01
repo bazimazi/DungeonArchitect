@@ -56,8 +56,9 @@ const escape = (s: string) =>
 function staticText(source: string): string {
   const clean = source.trim();
   if (!clean || !/[A-Za-z]/.test(clean) || /[={}]/.test(clean)) return source;
-  const result = msg(clean);
-  return result === clean ? source : source.replace(clean, escape(result));
+  const normalized = clean.replace(/\s+/g, " ");
+  const result = msg(normalized);
+  return result === normalized ? source : source.replace(clean, escape(result));
 }
 /** Only static template segments are translated. Interpolated player content is preserved. */
 export function html(

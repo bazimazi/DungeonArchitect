@@ -33,7 +33,8 @@ export type Category =
   | "structural"
   | "puzzle"
   | "utility"
-  | "environment";
+  | "environment"
+  | "decor";
 export type Tool =
   "select" | RoomTool | "floor" | "wall" | "erase" | ObjectType;
 export type Direction = "up" | "right" | "down" | "left";

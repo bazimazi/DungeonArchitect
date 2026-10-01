@@ -73,7 +73,7 @@ const en: Record<string, string> = {
   "object.guardian": "Stone guardian",
   "object.potion": "Healing potion",
   "desc.entrance": "The adventure starts here. One entrance per dungeon.",
-  "desc.treasure": "Reach this chest to complete the dungeon.",
+  "desc.treasure": "Claim this chest, then reach the exit if one is placed.",
   "desc.key": "A permanent key that opens every locked door.",
   "desc.door": "Requires a brass key. Make sure the key is reachable first.",
   "desc.spikes": "18 damage on contact. Resets every four turns.",
@@ -176,7 +176,10 @@ const en: Record<string, string> = {
   "validation.treasure": "Place exactly one treasure chest.",
   "validation.budget": "The dungeon exceeds its construction budget.",
   "validation.floor": "Every object must stand on a floor tile.",
-  "validation.unreachable": "The treasure cannot be reached from the entrance.",
+  "validation.unreachable":
+    "A required treasure or exit cannot be reached from the entrance.",
+  "validation.softlock":
+    "A reachable area has no route back to the goal. Add a return passage.",
   "validation.key": "A locked door has no obtainable key.",
   "validation.spawn": "The entrance is in an enemy’s immediate attack range.",
   "validation.success":
@@ -277,7 +280,13 @@ for (const [id, room] of Object.entries(ROOM_TOOLS)) {
   en[`desc.${id}`] =
     `Carve a ${room.width} by ${room.height} room. Connect it with corridors.`;
 }
-for (const category of ["structural", "puzzle", "utility", "environment"])
+for (const category of [
+  "structural",
+  "puzzle",
+  "utility",
+  "environment",
+  "decor",
+])
   en[`category.${category}`] = category[0].toUpperCase() + category.slice(1);
 for (const [id, description] of Object.entries(MECHANIC_DESCRIPTIONS)) {
   en[`object.${id}`] = id
@@ -299,6 +308,7 @@ Object.assign(en, {
   "event.phase": "Boss phase changed",
   "event.quest": "Quest updated",
   "validation.link": "A passage needs a linked destination.",
+  "validation.exit": "Place at most one exit.",
   "validation.logic": "A logic connection references a missing object.",
 });
 
@@ -313,7 +323,7 @@ export function t(
 }
 export function errorText(error: unknown): string {
   const key = error instanceof Error ? error.message : "generic.error";
-  return en[key] ?? en["generic.error"];
+  return t(en[key] ? key : "generic.error");
 }
 export function duration(seconds: number): string {
   const s = Math.round(seconds);

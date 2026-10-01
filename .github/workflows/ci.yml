@@ -3,6 +3,19 @@ on:
   push:
   pull_request:
 jobs:
+  container:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t dungeon-architect:ci .
+      - run: |
+          docker run -d --name dungeon-ci -p 5187:5187 dungeon-architect:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail http://127.0.0.1:5187/api/health; then exit 0; fi
+            sleep 1
+          done
+          docker logs dungeon-ci
+          exit 1
   verify:
     runs-on: ubuntu-latest
     steps:

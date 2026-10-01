@@ -14,6 +14,8 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
     issues.push({ code, messageKey: `validation.${code}`, point });
   const spawns = dungeon.objects.filter((o) => o.type === "entrance");
   const goals = dungeon.objects.filter((o) => o.type === "treasure");
+  const exits = dungeon.objects.filter((o) => o.type === "exit");
+  if (exits.length > 1) add("exit");
   if (spawns.length !== 1) add("entrance");
   if (goals.length !== 1) add("treasure");
   if (budgetUsed(dungeon) > dungeon.budget) add("budget");
@@ -35,7 +37,9 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
     const currentObject = objectAt(dungeon, current);
     const destination =
       currentObject?.config?.target &&
-      ["stairs", "teleporter", "elevator"].includes(currentObject.type)
+      ["stairs", "teleporter", "elevator", "teleport-trap"].includes(
+        currentObject.type,
+      )
         ? dungeon.objects.find((o) => o.id === currentObject.config!.target)
         : undefined;
     const deltas = Object.values(DIRECTIONS).filter(
@@ -75,6 +79,8 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
     }
   }
   if (goals.length && goalIndex < 0) add("unreachable", goals[0]);
+  for (const exit of exits)
+    if (!reachable.has(pointKey(exit))) add("unreachable", exit);
   for (const o of dungeon.objects)
     if (
       o.type === "door" &&
@@ -92,6 +98,50 @@ export function validateDungeon(dungeon: Dungeon): ValidationResult {
       !dungeon.objects.some((target) => target.id === o.config?.target)
     )
       add("link", o);
+  // Reverse reachability catches one-way passages into sealed areas, even when
+  // the architect's successful route avoids them. This is deliberately optimistic
+  // about gates/combat; dynamic teleport rules still require play verification.
+  if (
+    dungeon.schemaVersion === 2 &&
+    !dungeon.rules?.some(
+      (r) => r.action === "teleport" || r.otherwise === "teleport",
+    )
+  ) {
+    const finish = exits[0] ?? goals[0];
+    if (finish) {
+      const incoming = new Map<string, Point[]>();
+      for (const o of dungeon.objects) {
+        if (
+          !["stairs", "teleporter", "elevator", "teleport-trap"].includes(
+            o.type,
+          )
+        )
+          continue;
+        const target = dungeon.objects.find((v) => v.id === o.config?.target);
+        if (target)
+          incoming.set(pointKey(target), [
+            ...(incoming.get(pointKey(target)) ?? []),
+            o,
+          ]);
+      }
+      const canFinish = new Set([pointKey(finish)]),
+        reverse: Point[] = [finish];
+      for (let i = 0; i < reverse.length; i++) {
+        const p = reverse[i];
+        const previous = Object.values(DIRECTIONS)
+          .map((d) => ({ x: p.x + d.x, y: p.y + d.y }))
+          .filter((v) => Math.floor(v.y / 13) === Math.floor(p.y / 13));
+        previous.push(...(incoming.get(pointKey(p)) ?? []));
+        for (const v of previous)
+          if (isFloor(dungeon, v) && !canFinish.has(pointKey(v))) {
+            canFinish.add(pointKey(v));
+            reverse.push(v);
+          }
+      }
+      const stranded = queue.find((p) => !canFinish.has(pointKey(p)));
+      if (stranded) add("softlock", stranded);
+    }
+  }
   // The enemies are stationary in v1. A safe spawn has no immediate line of attack.
   const spawn = spawns[0];
   for (const o of dungeon.objects) {

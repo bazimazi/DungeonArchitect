@@ -14,6 +14,9 @@ it("translates static menus and reordered placeholders while preserving player t
   });
   setLocale("fa");
   expect(msg("Hello {name}", { name: "Mira" })).toBe("Mira، سلام");
+  expect(html`<button>Enter dungeon</button>`).toBe(
+    "<button>ورود به سیاهچال</button>",
+  );
   expect(
     html`<button>Enter dungeon</button>
       <p>${"Enter dungeon"}</p>

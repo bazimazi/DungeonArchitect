@@ -31,16 +31,16 @@ SQLite uses WAL, foreign keys, transactions, indexes and a bounded statement cac
 
 Publishing reconstructs a clear before saving an immutable version. Attempts receive server seeds and 24-hour tickets; submitted inputs determine outcomes, rewards and analytics. Duplicate requests re-check committed ticket state. Account/dungeon permissions are checked again after asynchronous verification. Ledger uniqueness and reward caps prevent repeated first-clear payouts.
 
-Online statistics include all verified attempts; the UI loads the latest 30 recordings for detailed playback. Difficulty is descriptive; internal challenge rating is heuristic. Ranked feeds use a bounded candidate pool and creator diversification, not learned recommendations.
+Online statistics include all verified attempts; the UI loads the latest 30 recordings for detailed playback. Difficulty is descriptive; internal challenge rating is heuristic. Ranked feeds combine recent and recently active candidates, diversify creators, and track distinct authenticated exposure. Small audiences expand after engagement from distinct external players; repeated views/owner attempts cannot buy expansion.
 
 Cloud/shared drafts use expected revisions. Listing a draft does not adopt a new write base; explicit loading does. Campaign chapters pin public versions with clear/flawless/optional-gold prerequisites. Guild members contribute their own worlds. Co-creation is asynchronous and rejects conflicts.
 
 ## Offline and presentation
 
-The production worker precaches hashed assets and self-hosted fonts, never account responses or API writes. Local persistence failures warn without discarding in-memory work. Recovery keeps ten replaced drafts. Account-specific outbox entries retry independently; expired/rejected entries still need manual recovery tooling.
+The production worker precaches hashed assets and self-hosted fonts, never account responses or API writes. Local persistence failures warn without discarding in-memory work. Recovery keeps ten replaced drafts. Account-specific outbox entries retry independently; expired/rejected entries can be retained as local replays and explicitly removed from retries.
 
 Rendering interpolates the camera without changing outcomes. Transient effects derive from events rather than unbounded physics entities. Optional synthesized sound includes theme ambience and danger/boss intensity. Contrast, text scaling, reduced motion, keyboard menus and touch controls are supported; full nonvisual Canvas gameplay is not.
 
-English is shipped. Keyed/extracted static messages support locale registration, interpolation and RTL. `npm run locales:extract` refreshes the catalog without rewriting source. Some dynamic fragments still need review before a second language ships.
+English is shipped. Keyed/extracted static messages support locale registration, interpolation and RTL. `npm run locales:extract` refreshes the catalog without rewriting source. The catalog includes UI, content and server messages; additional languages still require translation and linguistic/RTL review.
 
 Optional usage measurements default off and exclude layouts, titles, passwords and input streams. Separate authoritative gameplay records support rewards, abuse handling and metrics. These records are pseudonymous, not irreversibly anonymous.

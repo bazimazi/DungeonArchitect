@@ -125,13 +125,21 @@ for (const definition of Object.values(ADVANCED_CONTENT)) {
   )
     definition.category = "puzzle";
   else if (
-    ["teleporter", "checkpoint", "spawn-zone", "npc", "barrel"].includes(
-      definition.id,
-    )
+    [
+      "teleporter",
+      "checkpoint",
+      "spawn-zone",
+      "npc",
+      "barrel",
+      "camera-trigger",
+      "exit",
+    ].includes(definition.id)
   )
     definition.category = "utility";
   else if (definition.behavior === "environment")
     definition.category = "environment";
+  else if (["banner", "statue"].includes(definition.id))
+    definition.category = "decor";
   definition.unlockLevel = [
     "gravity-trap",
     "time-trap",
@@ -161,6 +169,8 @@ for (const definition of Object.values(ADVANCED_CONTENT)) {
                 ["elevator", "platform", "conveyor"].includes(definition.id)
               ? 5
               : 3;
+  if (["exit", "banner", "statue"].includes(definition.id))
+    definition.unlockLevel = 1;
 }
 
 export const MECHANIC_DESCRIPTIONS: Record<AdvancedObjectType, string> = {
@@ -225,4 +235,10 @@ export const MECHANIC_DESCRIPTIONS: Record<AdvancedObjectType, string> = {
   resource: "Optional cache grants materials on a first clear.",
   cosmetic: "Optional relic grants essence on a first clear.",
   npc: "Complete a quest to gain that faction's trust. Every eight turns inhabitants consume supplies and seek nearby resources; resupply emits OnTrigger.",
+  "camera-trigger":
+    "Focuses the camera on its linked object or this tile for a fixed number of turns. Does not change movement or combat.",
+  banner:
+    "A decorative banner. Walk through it freely; rotate to change its facing.",
+  statue: "A decorative monument. Does not block the adventure route.",
+  exit: "Optional escape point. When placed, adventurers must secure the main treasure and then reach this exit.",
 };

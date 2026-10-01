@@ -52,15 +52,17 @@ for (const name of await readdir("src/ui")) {
     }
     if (
       ts.isStringLiteral(node) &&
-      /^[A-Z][A-Za-z]/.test(node.text) &&
-      /\s/.test(node.text) &&
+      /^[A-Za-z]/.test(node.text) &&
       !/[<>{}=#]/.test(node.text) &&
-      !ts.isLiteralTypeNode(node.parent) &&
-      !ts.isImportDeclaration(node.parent) &&
-      !(
-        ts.isCallExpression(node.parent) &&
-        ["msg", "t"].includes(node.parent.expression.getText(file))
-      )
+      ts.isCallExpression(node.parent) &&
+      ((["button", "btn", "option", "number", "iconButton"].includes(
+        node.parent.expression.getText(file),
+      ) &&
+        node.parent.arguments[1] === node) ||
+        (["field", "this.message", "this.toast"].includes(
+          node.parent.expression.getText(file),
+        ) &&
+          node.parent.arguments[0] === node))
     ) {
       edits.push({
         start: node.getStart(file),
@@ -81,7 +83,7 @@ for (const name of await readdir("src/ui")) {
         : [node.text];
       for (const part of parts) {
         for (const match of part.matchAll(/(?:^|>)([^<>]*?)(?=<|$)/g)) {
-          const value = match[1].trim();
+          const value = match[1].trim().replace(/\s+/g, " ");
           if (
             /[A-Za-z]/.test(value) &&
             !/[={}]/.test(value) &&
@@ -117,6 +119,40 @@ for (const name of await readdir("src/ui")) {
         text;
     await writeFile(path, text);
   }
+}
+// Include trusted content definitions and server error copy without rewriting their machine identifiers.
+for (const path of [
+  "src/ui/i18n.ts",
+  "src/core/advanced-content.ts",
+  "src/core/advanced-types.ts",
+  "src/core/templates.ts",
+  "src/shared/community.ts",
+  "src/shared/economy.ts",
+  ...(await readdir("server"))
+    .filter((p) => p.endsWith(".ts"))
+    .map((p) => `server/${p}`),
+]) {
+  const source = await readFile(path, "utf8"),
+    file = ts.createSourceFile(path, source, ts.ScriptTarget.Latest, true);
+  const visit = (node) => {
+    if (
+      ts.isStringLiteral(node) &&
+      /[A-Za-z]/.test(node.text) &&
+      !/[<>{}]/.test(node.text)
+    ) {
+      const property =
+        ts.isPropertyAssignment(node.parent) &&
+        node.parent.initializer === node;
+      const error =
+        ts.isNewExpression(node.parent) &&
+        node.parent.expression.getText(file) === "ApiError" &&
+        node.parent.arguments?.[2] === node;
+      if ((property && !path.startsWith("server/")) || error)
+        messages.add(node.text.replace(/\s+/g, " "));
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
 }
 await mkdir("src/locales", { recursive: true });
 await writeFile(

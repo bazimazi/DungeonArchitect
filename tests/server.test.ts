@@ -62,6 +62,142 @@ async function publish(
 }
 
 describe("persistent authoritative server", () => {
+  it("measures post-attempt returns only for mature distinct-player cohorts", async () => {
+    const server = await buildServer({
+      databasePath: ":memory:",
+      rateLimits: false,
+      now: () => new Date("2026-01-11T00:00:00.000Z"),
+    });
+    open.push(server);
+    const owner = await register(server, "retention_owner");
+    const dungeon = await publish(server, owner.cookie);
+    let sequence = 0;
+    const attempt = (player: string, day: number) => {
+      const id = `retention-${sequence++}`;
+      const at = new Date(
+        Date.parse("2026-01-01T00:00:00.000Z") + day * 86400000,
+      ).toISOString();
+      server.db.run(
+        "INSERT INTO tickets VALUES(?,?,?,?,?,?,?)",
+        id,
+        player,
+        dungeon.card.versionId,
+        1,
+        at,
+        at,
+        "fixture",
+      );
+      server.db.run(
+        "INSERT INTO attempts VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        id,
+        id,
+        player,
+        dungeon.card.versionId,
+        new Uint8Array(),
+        "completed",
+        30,
+        100,
+        0,
+        0,
+        0,
+        null,
+        null,
+        "{}",
+        at,
+      );
+    };
+    for (const [handle, days] of [
+      ["returned", [0, 1, 2]],
+      ["same_session", [0, 0.1]],
+      ["too_late", [0, 8]],
+      ["recent", [9]],
+    ] as const) {
+      const player = await register(server, handle);
+      for (const day of days) attempt(player.profile.id, day);
+    }
+    attempt(owner.profile.id, 0);
+    attempt(owner.profile.id, 1);
+    const response = await server.app.inject({
+      url: "/api/dungeons?category=recommended",
+    });
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().items[0].calibration).toMatchObject({
+      returnEligiblePlayers: 3,
+      returningPlayers: 1,
+    });
+  });
+  it("deduplicates served recommendations and limits a new dungeon's initial audience without hiding it from New", async () => {
+    const s = await setup(),
+      owner = await register(s, "exposure_owner"),
+      first = await register(s, "first_viewer"),
+      next = await register(s, "next_viewer"),
+      dungeon = await publish(s, owner.cookie);
+    const feed = (cookie: string, category: string) =>
+      s.app.inject({
+        url: `/api/dungeons?category=${category}`,
+        headers: { cookie },
+      });
+    await feed(first.cookie, "recommended");
+    await feed(first.cookie, "recommended");
+    expect(
+      s.db.get<{ count: number }>(
+        "SELECT COUNT(*) count FROM discovery_exposures",
+      )?.count,
+    ).toBe(1);
+    for (let i = 0; i < 19; i++) {
+      s.db.run(
+        "INSERT INTO users VALUES(?,?,?,?,?,?,?,?,?)",
+        `sample${i}`,
+        `sample${i}`,
+        "Sample",
+        "no-login",
+        "player",
+        "active",
+        0,
+        "[]",
+        new Date().toISOString(),
+      );
+      s.db.run(
+        "INSERT INTO discovery_exposures VALUES(?,?,?)",
+        dungeon.card.versionId,
+        `sample${i}`,
+        new Date().toISOString(),
+      );
+    }
+    expect((await feed(next.cookie, "recommended")).json().items).toEqual([]);
+    expect((await feed(next.cookie, "new")).json().items[0].id).toBe(
+      dungeon.card.id,
+    );
+    expect((await feed(first.cookie, "recommended")).json().items[0].id).toBe(
+      dungeon.card.id,
+    );
+    for (let i = 0; i < 3; i++) {
+      const player = await register(s, `audience_player${i}`);
+      const ticket = (
+        await s.app.inject({
+          method: "POST",
+          url: `/api/versions/${dungeon.card.versionId}/attempts`,
+          headers: { cookie: player.cookie },
+        })
+      ).json<AttemptTicket>();
+      const proof = simulateAdventurer(
+        ticket.dungeon,
+        ticket.versionId,
+        ticket.seed,
+        3,
+      );
+      const result = await s.app.inject({
+        method: "POST",
+        url: `/api/attempts/${ticket.id}`,
+        headers: { cookie: player.cookie },
+        payload: { actions: proof.actions, abandon: false },
+      });
+      expect(result.statusCode, result.body).toBe(200);
+    }
+    expect((await feed(next.cookie, "recommended")).json().items[0].id).toBe(
+      dungeon.card.id,
+    );
+  });
   it("aggregates every verified recording, exposes public reputation without balances, and scopes record categories", async () => {
     const server = await setup(),
       owner = await register(server, "atlas"),

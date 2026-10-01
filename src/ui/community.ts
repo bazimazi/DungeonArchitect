@@ -47,7 +47,7 @@ const field = (
   extra = "",
 ) =>
   html`<label
-    >${esc(label)}<input
+    >${esc(msg(label))}<input
       name="${name}"
       type="${type}"
       value="${esc(value)}"
@@ -189,7 +189,9 @@ export class CommunityHub {
       await work();
     } catch (error) {
       this.message(
-        error instanceof Error ? error.message : msg("Something went wrong."),
+        error instanceof Error
+          ? msg(error.message)
+          : msg("Something went wrong."),
         true,
       );
     } finally {
@@ -250,7 +252,7 @@ export class CommunityHub {
       </div>
       <form data-form="login">
         <h2>Sign in</h2>
-        ${field("Handle", "handle", "", "text", 'required minlength="3" maxlength="24" autocomplete="username"')}${field("Password", "password", "", "password", 'required minlength="10" maxlength="128" autocomplete="current-password"')}<button
+        ${field(msg("Handle"), "handle", "", "text", 'required minlength="3" maxlength="24" autocomplete="username"')}${field(msg("Password"), "password", "", "password", 'required minlength="10" maxlength="128" autocomplete="current-password"')}<button
           class="button primary"
         >
           Sign in
@@ -258,7 +260,7 @@ export class CommunityHub {
       </form>
       <form data-form="register">
         <h2>Create an account</h2>
-        ${field("Handle", "handle", "", "text", 'required pattern="[a-zA-Z][a-zA-Z0-9_]{2,23}" maxlength="24" autocomplete="username"')}${field(msg("Display name"), "displayName", "", "text", 'required minlength="2" maxlength="40" autocomplete="nickname"')}${field("Password", "password", "", "password", 'required minlength="10" maxlength="128" autocomplete="new-password"')}<button
+        ${field(msg("Handle"), "handle", "", "text", 'required pattern="[a-zA-Z][a-zA-Z0-9_]{2,23}" maxlength="24" autocomplete="username"')}${field(msg("Display name"), "displayName", "", "text", 'required minlength="2" maxlength="40" autocomplete="nickname"')}${field(msg("Password"), "password", "", "password", 'required minlength="10" maxlength="128" autocomplete="new-password"')}<button
           class="button primary"
         >
           Create account
@@ -343,7 +345,7 @@ export class CommunityHub {
           }
         </div>
         <div class="community-actions">
-          ${this.cursor ? btn("page", "Previous", String(Math.max(0, this.cursor - 12))) : ""}${feed.next !== null ? btn("page", "Next", String(feed.next)) : ""}
+          ${this.cursor ? btn("page", msg("Previous"), String(Math.max(0, this.cursor - 12))) : ""}${feed.next !== null ? btn("page", msg("Next"), String(feed.next)) : ""}
         </div>`;
     } else if (this.tab === "publish") {
       const draft = this.hooks.draft();
@@ -434,8 +436,8 @@ export class CommunityHub {
                 class="panel ${p.level >= e.level ? "unlocked" : ""}"
               >
                 <p class="eyebrow">LEVEL ${e.level}</p>
-                <h3>${e.name}</h3>
-                <p>${e.unlocks.join(" · ")}</p>
+                <h3>${esc(msg(e.name))}</h3>
+                <p>${e.unlocks.map((v) => esc(msg(v))).join(" · ")}</p>
                 <small
                   >${p.level >= e.level ? msg("Level reached") : msg("Keep creating and exploring")}</small
                 >
@@ -451,9 +453,9 @@ export class CommunityHub {
           .map(
             (c) =>
               html`<article class="panel">
-                <p class="eyebrow">${c.kind} architect challenge</p>
-                <h2>${esc(c.title)}</h2>
-                <p>${esc(c.description)}</p>
+                <p class="eyebrow">${esc(msg(c.kind))} architect challenge</p>
+                <h2>${esc(msg(c.title))}</h2>
+                <p>${esc(msg(c.description))}</p>
                 <p>Ends ${esc(new Date(c.endsAt).toLocaleString())}</p>
                 ${btn("build-challenge", msg("Enter this challenge"), c.id, true)}
                 ${btn("submissions", msg("Explore submissions"), c.id)}
@@ -645,7 +647,7 @@ export class CommunityHub {
         <span>${esc(c.title.slice(0, 1))}</span><i></i>
       </div>
       <div class="card-copy">
-        <p class="eyebrow">${esc(c.difficulty)} · V${c.version}</p>
+        <p class="eyebrow">${esc(msg(c.difficulty))} · V${c.version}</p>
         <h2>${esc(c.title)}</h2>
         <p class="muted">by @${esc(c.author)}</p>
         <p>${esc(c.description || msg("An architect’s challenge awaits."))}</p>
@@ -719,6 +721,9 @@ export class CommunityHub {
             Average damage: ${Math.round(c.calibration.averageDamage)} · Repeat
             attempts: ${Math.round(c.calibration.retryRate)}%
           </p>
+          <p>
+            ${esc(msg("Returned to play within 1–7 days: {returned} of {eligible} players with a full observation window.", { returned: c.calibration.returningPlayers, eligible: c.calibration.returnEligiblePlayers }))}
+          </p>
           <label
             >Dungeon version<select name="version">
               ${d.versions.map((v) => html`<option value="${v.id}" ${v.id === versionId ? "selected" : ""}>Version ${v.number} · ${v.attempts} attempts</option>`).join("")}
@@ -740,7 +745,7 @@ export class CommunityHub {
           <details>
             <summary>Report this dungeon</summary>
             <form data-form="report">
-              ${field("Reason", "reason", "", "text", 'required minlength="10" maxlength="1000"')}<button
+              ${field(msg("Reason"), "reason", "", "text", 'required minlength="10" maxlength="1000"')}<button
                 class="button outline"
               >
                 Submit report
@@ -780,7 +785,7 @@ export class CommunityHub {
                         <h3>@${esc(a.player)} · ${esc(a.outcome)}</h3>
                         <p>
                           ${(a.ticks / 4).toFixed(1)}s · ${a.health}
-                          HP${a.death ? ` · fell at ${a.death.x + 1}, ${a.death.y + 1}` : ""}
+                          HP${a.death ? " · " + esc(msg("fell at {x}, {y}", { x: a.death.x + 1, y: a.death.y + 1 })) : ""}
                         </p>
                       </div>
                       ${btn("replay", msg("Watch replay"), a.id)}
@@ -828,7 +833,7 @@ export class CommunityHub {
                 type="hidden"
                 name="id"
                 value="${p.id}"
-              />${field("Reason", "reason", "", "text", 'required minlength="10" maxlength="1000"')}<button
+              />${field(msg("Reason"), "reason", "", "text", 'required minlength="10" maxlength="1000"')}<button
                 class="button outline"
               >
                 Submit report
@@ -991,15 +996,7 @@ export class CommunityHub {
       this.tab = "publish";
       await this.render();
     } else if (action === "submissions") {
-      const cards = await this.api.request<DungeonCard[]>(
-        `/challenges/${encodeURIComponent(value)}/submissions`,
-      );
-      this.shell(
-        html`<h2>Challenge submissions</h2>
-          <div class="dungeon-feed">
-            ${cards.map((c) => this.card(c)).join("") || html`<p>No submissions yet.</p>`}
-          </div>`,
-      );
+      await this.showSubmissions(value);
     } else if (action === "save-draft") {
       const dungeon = this.hooks.draft();
       const result = await this.api.request<{ revision: number }>(
@@ -1034,7 +1031,55 @@ export class CommunityHub {
       }
     }
   }
+  private async showSubmissions(id: string, sort = "new"): Promise<void> {
+    const cards = await this.api.request<DungeonCard[]>(
+      `/challenges/${encodeURIComponent(id)}/submissions?sort=${encodeURIComponent(sort)}`,
+    );
+    this.shell(
+      html`<h2>Challenge submissions</h2>
+        <p>
+          Explore by unique adventurers, total verified attempts, or community
+          favorites.
+        </p>
+        <form data-form="submissions" class="community-search">
+          <input type="hidden" name="challengeId" value="${esc(id)}" />
+          <label
+            >Community category<select
+              name="sort"
+              aria-label="Community category"
+            >
+              ${[
+                ["new", "Newest"],
+                ["most-played", "Most played (unique adventurers)"],
+                ["most-attempted", "Most attempted"],
+                ["most-favorited", "Most favorited"],
+              ]
+                .map(
+                  ([key, label]) =>
+                    html`<option
+                      value="${key}"
+                      ${key === sort ? "selected" : ""}
+                    >
+                      ${esc(msg(label))}
+                    </option>`,
+                )
+                .join("")}
+            </select></label
+          ><button class="button primary">Show category</button>
+        </form>
+        <div class="dungeon-feed">
+          ${cards.map((c) => this.card(c)).join("") || html`<p>No submissions yet.</p>`}
+        </div>`,
+    );
+  }
   private async submit(action: string, form: FormData): Promise<void> {
+    if (action === "submissions") {
+      await this.showSubmissions(
+        String(form.get("challengeId")),
+        String(form.get("sort")),
+      );
+      return;
+    }
     if (action.startsWith("extras:")) {
       await this.extras.submit(action.slice(7), form);
       return;

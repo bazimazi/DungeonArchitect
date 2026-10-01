@@ -1,4 +1,5 @@
 const paths: Record<string, string> = {
+  decor: '<path d="M5 22V2m0 1h14l-3 5 3 5H5"/>',
   castle:
     '<path d="M3 21V7h4V3h3v4h4V3h3v4h4v14M3 12h18M9 21v-5a3 3 0 0 1 6 0v5"/>',
   rooms:

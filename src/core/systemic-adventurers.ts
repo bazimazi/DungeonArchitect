@@ -108,7 +108,11 @@ export function simulateSystemicAdventurer(
         .map((o) => ({ o, n: reached.get(pointKey(o)) }))
         .filter((v) => v.n)
         .sort((x, y) => x.n!.cost - y.n!.cost)[0];
-    const goal = objects.find((o) => o.type === "treasure");
+    const treasure = objects.find((o) => o.type === "treasure");
+    const goal =
+      treasure && s.collected.includes(treasure.id)
+        ? objects.find((o) => o.type === "exit")
+        : treasure;
     const ready =
       dungeon.objective?.kind !== "survive" ||
       s.tick >= dungeon.objective.ticks;

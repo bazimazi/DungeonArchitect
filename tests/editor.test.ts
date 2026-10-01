@@ -164,6 +164,45 @@ describe("dungeon editor", () => {
 });
 
 describe("key-aware validation", () => {
+  it("rejects an optional one-way passage into a sealed room even when the treasure has a clear path", () => {
+    const d = createDungeon();
+    d.schemaVersion = 2;
+    d.tiles.fill(0);
+    for (const [x, y] of [
+      [1, 1],
+      [2, 1],
+      [3, 1],
+      [2, 2],
+      [8, 8],
+      [9, 8],
+    ])
+      d.tiles[y * d.width + x] = 1;
+    d.objects = [
+      { id: "start", type: "entrance", x: 1, y: 1, rotation: 0 },
+      { id: "goal", type: "treasure", x: 3, y: 1, rotation: 0 },
+      {
+        id: "out",
+        type: "teleporter",
+        x: 2,
+        y: 2,
+        rotation: 0,
+        config: { target: "arrival" },
+      },
+      { id: "arrival", type: "banner", x: 8, y: 8, rotation: 0 },
+    ];
+    expect(validateDungeon(d).issues.map((i) => i.code)).toContain("softlock");
+    d.objects[2].type = "teleport-trap";
+    expect(validateDungeon(d).issues.map((i) => i.code)).toContain("softlock");
+    d.objects.push({
+      id: "back",
+      type: "stairs",
+      x: 9,
+      y: 8,
+      rotation: 0,
+      config: { target: "start" },
+    });
+    expect(validateDungeon(d).valid).toBe(true);
+  });
   it("accepts the starter and harmless loops", () => {
     expect(validateDungeon(createStarter()).valid).toBe(true);
   });

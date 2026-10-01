@@ -22,7 +22,7 @@ const esc = (v: unknown) =>
   );
 const option = (value: string, label: string, selected = "") =>
   html`<option value="${esc(value)}" ${value === selected ? "selected" : ""}>
-    ${esc(label)}
+    ${esc(msg(label))}
   </option>`;
 const number = (
   name: string,
@@ -32,7 +32,7 @@ const number = (
   max: number,
 ) =>
   html`<label
-    >${label}<input
+    >${esc(msg(label))}<input
       type="number"
       name="${name}"
       value="${value}"
@@ -139,7 +139,7 @@ export class WorkshopTools {
                 ([id, b]) =>
                   html`<p>
                     <b>${id}</b> · ${b.health} HP · ${b.attack} attack ·
-                    ${b.defense} defense<br />${b.description}
+                    ${b.defense} defense<br />${esc(msg(b.description))}
                   </p>`,
               )
               .join("")}
@@ -177,6 +177,7 @@ export class WorkshopTools {
         body = html`<h2>${esc(t(`object.${o.type}`))}</h2>
           <p>${esc(t(`desc.${o.type}`))}</p>
           <form class="community-form">
+            ${o.type === "camera-trigger" ? number("range", msg("Camera frame width (tiles)"), c.range ?? 6, 3, 8) + number("delay", msg("Camera hold (turns)"), c.delay ?? 8, 1, 100) : ""}
             ${enemy ? html`<label>Faction (optional)<input name="faction" maxlength="40" value="${esc(c.faction ?? "")}" /></label>` : ""}
             ${o.type === "npc" ? number("threshold", msg("Starting supplies"), c.threshold ?? 2, 1, 100) : ""}
             ${
@@ -190,9 +191,9 @@ export class WorkshopTools {
             }
             <label
               >Starts enabled<select name="enabled">
-                ${option("true", "Enabled", String(c.enabled ?? !["gate", "lever", "button", "plate", "timer", "counter", "and-gate", "or-gate", "not-gate", "proximity", "elevator", "platform", "spawn-zone"].includes(o.type)))}${option("false", "Disabled", String(c.enabled ?? true))}
+                ${option("true", msg("Enabled"), String(c.enabled ?? !["gate", "lever", "button", "plate", "timer", "counter", "and-gate", "or-gate", "not-gate", "proximity", "elevator", "platform", "spawn-zone"].includes(o.type)))}${option("false", msg("Disabled"), String(c.enabled ?? true))}
               </select></label
-            >${enemy || trap ? `${number("damage", "Damage", c.damage ?? def.damage ?? 10, 0, 50)}${number("cooldown", msg("Cooldown (turns)"), c.cooldown ?? def.cooldown ?? 3, 1, 100)}${number("range", msg("Detection / attack range"), c.range ?? def.range ?? 1, 0, 8)}` : ""}${enemy ? number("hp", "Health", c.hp ?? def.hp ?? 32, 1, 500) : ""}${["timer", "repeater", "button"].includes(o.type) ? number("delay", msg("Interval (turns)"), c.delay ?? 4, 1, 100) : ""}${o.type === "counter" ? number("threshold", msg("Required signals"), c.threshold ?? 3, 1, 100) : ""}${o.type === "proximity" ? number("range", msg("Detection radius"), c.range ?? 2, 0, 8) : ""}<label
+            >${enemy || trap ? `${number("damage", msg("Damage"), c.damage ?? def.damage ?? 10, 0, 50)}${number("cooldown", msg("Cooldown (turns)"), c.cooldown ?? def.cooldown ?? 3, 1, 100)}${number("range", msg("Detection / attack range"), c.range ?? def.range ?? 1, 0, 8)}` : ""}${enemy ? number("hp", msg("Health"), c.hp ?? def.hp ?? 32, 1, 500) : ""}${["timer", "repeater", "button"].includes(o.type) ? number("delay", msg("Interval (turns)"), c.delay ?? 4, 1, 100) : ""}${o.type === "counter" ? number("threshold", msg("Required signals"), c.threshold ?? 3, 1, 100) : ""}${o.type === "proximity" ? number("range", msg("Detection radius"), c.range ?? 2, 0, 8) : ""}<label
               >Linked destination / monster<select name="target">
                 <option value="">None</option>
                 ${this.options(c.target)}
@@ -262,7 +263,7 @@ ${esc(c.dialogue ?? msg("Every passage has a story."))}</textarea></label
                               >Attack<select name="phase-${i}-attack">
                                 ${["melee", "cross", "charge", "summon", "shatter"].map((v) => option(v, v, p.attack)).join("")}
                               </select></label
-                            >${number(`phase-${i}-cooldown`, "Cooldown", p.cooldown, 1, 20)}${number(`phase-${i}-damage`, "Damage", p.damage, 1, 40)}${number(`phase-${i}-armor`, "Armor", p.armor, 0, 15)}
+                            >${number(`phase-${i}-cooldown`, msg("Cooldown"), p.cooldown, 1, 20)}${number(`phase-${i}-damage`, msg("Damage"), p.damage, 1, 40)}${number(`phase-${i}-armor`, msg("Armor"), p.armor, 0, 15)}
                           </fieldset>`,
                       )
                       .join("")}`
@@ -346,7 +347,7 @@ ${esc(c.dialogue ?? msg("Every passage has a story."))}</textarea></label
                 >Comparison<select name="operator">
                   ${["gte", "lte", "eq"].map((v) => option(v, v === "gte" ? msg("At least") : v === "lte" ? msg("At most") : "Equals")).join("")}
                 </select></label
-              >${number("value", "Value", 1, 0, 1000)}
+              >${number("value", msg("Value"), 1, 0, 1000)}
             </fieldset>
             <fieldset>
               <legend>3 · ACTION</legend>
