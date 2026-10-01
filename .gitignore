@@ -145,3 +145,9 @@ vite.config.ts.timestamp-*
 # Browser test output
 test-results/
 playwright-report/
+
+# Local server databases and backups
+data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

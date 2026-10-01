@@ -5,27 +5,56 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "server": "tsx server/main.ts",
+    "server:dev": "tsx watch server/main.ts",
+    "admin": "tsx server/admin.ts",
+    "backup": "node scripts/backup.mjs",
+    "benchmark": "tsx scripts/benchmark.ts",
+    "test:load": "node scripts/load-test.mjs",
+    "test:native": "node scripts/native-smoke.mjs",
+    "locales:extract": "node scripts/localize-ui.mjs",
     "build": "tsc --noEmit && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview --host 127.0.0.1",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "npm run build && playwright test",
     "check": "npm test && npm run test:e2e",
-    "format": "prettier --write src tests scripts *.ts *.json index.html docs README.md .github/workflows/ci.yml"
+    "format": "prettier --write src server tests scripts *.ts *.json index.html docs README.md .github/workflows",
+    "native:sync": "npm run build && cap sync",
+    "android:debug": "npm run native:sync && cd android && gradlew.bat assembleDebug",
+    "native:android": "cap open android",
+    "native:ios": "cap open ios"
   },
   "engines": {
-    "node": "^22.12.0 || ^24.0.0 || >=26.0.0"
+    "node": ">=24.0.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "8.4.3",
     "@playwright/test": "^1.63.0",
     "@types/node": "^26.6.3",
+    "@types/qrcode": "^1.5.6",
     "prettier": "^3.9.9",
     "typescript": "^7.0.2",
+    "typescript-parser": "npm:typescript@^5.9.3",
     "vite": "^8.3.2",
     "vitest": "^5.0.3"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.2",
+    "@capacitor/app": "^8.1.1",
+    "@capacitor/core": "^8.5.2",
+    "@capacitor/ios": "^8.5.2",
+    "@capacitor/share": "^8.0.2",
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/rate-limit": "^11.2.0",
+    "@fastify/static": "^10.1.5",
     "@fontsource/dm-sans": "^5.3.0",
-    "@fontsource/manrope": "^5.3.0"
+    "@fontsource/manrope": "^5.3.0",
+    "fastify": "^5.12.5",
+    "qrcode": "^1.5.4",
+    "tsx": "^4.23.15"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true
   }
 }
