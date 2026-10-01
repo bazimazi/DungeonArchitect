@@ -103,6 +103,27 @@ test("complete, publish, simulate, replay, edit, retest, republish, and reload",
   expect(errors).toEqual([]);
 });
 
+test("narrow phone keeps navigation and publish controls reachable above the tray", async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 320, height: 592 });
+  await page.goto("/");
+  await completeStarter(page, false);
+  await page
+    .getByRole("button", { name: "Publish dungeon", exact: true })
+    .click();
+  await expect(
+    page.getByRole("button", { name: "Invite 6 adventurers" }),
+  ).toBeVisible();
+  expect(
+    await page.evaluate(
+      () =>
+        document.documentElement.scrollWidth >
+        document.documentElement.clientWidth,
+    ),
+  ).toBe(false);
+});
+
 test("a failed personal test can be replayed, inspected at death, and restored after reload", async ({
   page,
 }) => {
@@ -128,7 +149,7 @@ test("production build reloads and plays with the network offline", async ({
   page,
   context,
 }) => {
-  await page.goto("http://127.0.0.1:5189/");
+  await page.goto("http://127.0.0.1:5319/");
   await page.evaluate(async () => {
     await navigator.serviceWorker.ready;
     if (!navigator.serviceWorker.controller)

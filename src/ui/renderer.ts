@@ -1,10 +1,15 @@
+import { ROOM_TOOLS } from "../core/rooms";
+import type { RoomTool } from "../core/rooms";
 import { CONTENT } from "../core/content";
 import { isFloor, objectAt } from "../core/dungeon";
 import { pointKey } from "../core/types";
 import type { Dungeon, ObjectType, Point, RunState, Tool } from "../core/types";
+import type { Category } from "../core/types";
 import type { DungeonAnalytics } from "../services/analytics";
+import { isAdvancedObject } from "../core/configuration";
 
 export interface RenderOptions {
+  hiddenLayers?: ReadonlySet<Category>;
   dungeon: Dungeon;
   state?: RunState;
   grid: boolean;
@@ -24,6 +29,7 @@ const noise = (x: number, y: number): number =>
 
 /** Procedural art is presentation only. Simulation owns every gameplay result. */
 export class DungeonRenderer {
+  floor = 0;
   zoom = 1;
   pan = { x: 0, y: 0 };
   private context: CanvasRenderingContext2D;
@@ -42,7 +48,9 @@ export class DungeonRenderer {
     const y = Math.floor(
       ((py - 336 - this.pan.y) / this.zoom + 336 - PAD) / CELL,
     );
-    return x >= 0 && x < 15 && y >= 0 && y < 13 ? { x, y } : null;
+    return x >= 0 && x < 15 && y >= 0 && y < 13
+      ? { x, y: y + this.floor * 13 }
+      : null;
   }
   fit(): void {
     this.zoom = 1;
@@ -51,6 +59,17 @@ export class DungeonRenderer {
   draw(options: RenderOptions): void {
     const { dungeon, state, grid, reducedMotion, time } = options;
     const c = this.context;
+    const hues: Record<string, number> = {
+      "forgotten-cave": 90,
+      "ancient-ruins": 38,
+      castle: 215,
+      fortress: 205,
+      temple: 280,
+      "underground-city": 28,
+      hell: 5,
+      "alien-facility": 170,
+    };
+    const hue = hues[dungeon.theme];
     const dpr = this.canvas.width / 768;
     c.setTransform(dpr, 0, 0, dpr, 0, 0);
     c.fillStyle = "#111a18";
@@ -69,11 +88,15 @@ export class DungeonRenderer {
     c.textAlign = "center";
     for (let x = 0; x < dungeon.width; x++)
       c.fillText(String(x + 1).padStart(2, "0"), PAD + x * CELL + CELL / 2, 14);
-    for (let y = 0; y < dungeon.height; y++)
+    for (let y = 0; y < 13; y++)
       c.fillText(String.fromCharCode(65 + y), 12, PAD + y * CELL + 28);
     c.translate(PAD, PAD);
+    c.beginPath();
+    c.rect(0, 0, CELL * 15, CELL * 13);
+    c.clip();
+    c.translate(0, -this.floor * 13 * CELL);
     // Dirt, scattered roots, and stone fragments keep uncarved space atmospheric.
-    for (let y = 0; y < dungeon.height; y++)
+    for (let y = this.floor * 13; y < (this.floor + 1) * 13; y++)
       for (let x = 0; x < dungeon.width; x++) {
         const n = noise(x + 4, y + 8);
         const px = x * CELL;
@@ -108,7 +131,7 @@ export class DungeonRenderer {
         }
       }
     // Draw wall silhouettes first so their depth falls behind the walkable tiles.
-    for (let y = 0; y < dungeon.height; y++)
+    for (let y = this.floor * 13; y < (this.floor + 1) * 13; y++)
       for (let x = 0; x < dungeon.width; x++) {
         if (!isFloor(dungeon, { x, y })) continue;
         const px = x * CELL;
@@ -121,17 +144,17 @@ export class DungeonRenderer {
         c.shadowBlur = 0;
         c.shadowOffsetY = 0;
       }
-    for (let y = 0; y < dungeon.height; y++)
+    for (let y = this.floor * 13; y < (this.floor + 1) * 13; y++)
       for (let x = 0; x < dungeon.width; x++) {
         if (!isFloor(dungeon, { x, y })) continue;
         const px = x * CELL;
         const py = y * CELL;
         const n = noise(x, y);
-        c.fillStyle = ["#495345", "#4a5446", "#444f42", "#505747"][n % 4];
+        c.fillStyle = `hsl(${hue} 13% ${28 + (n % 4)}%)`;
         c.fillRect(px, py, CELL, CELL);
         c.fillStyle = "#252e25";
         c.fillRect(px + 1, py + 1, CELL - 2, CELL - 2);
-        c.fillStyle = ["#515947", "#545c49", "#4c5545", "#505b49"][n % 4];
+        c.fillStyle = `hsl(${hue} 15% ${30 + (n % 4)}%)`;
         c.fillRect(px + 2, py + 2, CELL - 4, CELL - 5);
         c.fillStyle = "rgba(215,217,174,.08)";
         c.fillRect(px + 3, py + 3, CELL - 6, 1);
@@ -219,7 +242,37 @@ export class DungeonRenderer {
       c.fillStyle = "#ffe4a4";
       c.fillRect(x - 1, y - 5, 2, 6);
     }
-    for (const o of dungeon.objects) {
+    if (state?.advanced)
+      for (const [key, type] of Object.entries(state.advanced.environment)) {
+        const [x, y] = key.split(",").map(Number);
+        const colors: Record<string, string> = {
+          water: "#3a9fd466",
+          ice: "#b0eced88",
+          fire: "#e9844166",
+          poison: "#90b84866",
+          electricity: "#e2e77488",
+          lava: "#ef592e88",
+          oil: "#1e172899",
+          darkness: "#030609cc",
+          light: "#efda7144",
+          smoke: "#a6afb288",
+          wind: "#91d2c233",
+        };
+        c.fillStyle = colors[type];
+        c.fillRect(x * CELL, y * CELL, CELL, CELL);
+      }
+    for (const raw of dungeon.objects) {
+      if (options.hiddenLayers?.has(CONTENT[raw.type].category)) continue;
+      const position = state?.advanced?.positions[raw.id];
+      const o =
+        position && (position.x !== raw.x || position.y !== raw.y)
+          ? { ...raw, ...position }
+          : raw;
+      if (
+        state?.advanced?.destroyed.includes(o.id) ||
+        Math.floor(o.y / 13) !== this.floor
+      )
+        continue;
       if (state?.collected.includes(o.id)) continue;
       const enemy = state?.enemies.find((e) => e.id === o.id);
       if (enemy && enemy.hp === 0) {
@@ -231,17 +284,34 @@ export class DungeonRenderer {
       }
       c.save();
       c.translate(o.x * CELL + 24, o.y * CELL + 24);
+      if (
+        state &&
+        ["stalker", "mimic"].includes(o.type) &&
+        Math.abs(state.player.x - o.x) + Math.abs(state.player.y - o.y) > 2 &&
+        !dungeon.objects.some(
+          (light) =>
+            light.type === "light" &&
+            Math.abs(light.x - o.x) + Math.abs(light.y - o.y) <= 3,
+        )
+      ) {
+        if (o.type === "mimic") drawMechanism(c, "gold", 0, 0);
+        c.restore();
+        continue;
+      }
       if (state?.opened.includes(o.id)) c.globalAlpha = 0.3;
+      if (state?.advanced && !state.advanced.active[o.id]) c.globalAlpha *= 0.6;
+      if (o.type === "boss" && o.config?.body === "serpent") c.scale(1.35, 0.7);
+      if (o.type === "boss" && o.config?.body === "sentinel") c.scale(0.8, 1.2);
       drawSprite(c, o.type, o.rotation, reducedMotion ? 0 : time);
       c.restore();
-      if (enemy && enemy.hp < CONTENT[o.type].hp!) {
+      if (enemy && enemy.hp < (o.config?.hp ?? CONTENT[o.type].hp!)) {
         c.fillStyle = "#1a211b";
         c.fillRect(o.x * CELL + 7, o.y * CELL + 3, 34, 4);
         c.fillStyle = "#de946f";
         c.fillRect(
           o.x * CELL + 7,
           o.y * CELL + 3,
-          (34 * enemy.hp) / CONTENT[o.type].hp!,
+          (34 * enemy.hp) / (o.config?.hp ?? CONTENT[o.type].hp!),
           4,
         );
       }
@@ -295,24 +365,30 @@ export class DungeonRenderer {
       }
     const hover = options.showCursor ? options.cursor : options.hover;
     if (hover && !state && !options.heatmap) {
-      const radius = options.tool === "room" ? 1 : 0;
+      const shape = ROOM_TOOLS[options.tool as RoomTool] ?? {
+        width: 1,
+        height: 1,
+      };
+      const radiusX = Math.floor(shape.width / 2),
+        radiusY = Math.floor(shape.height / 2);
       const valid =
-        ["room", "floor", "wall", "erase", "select"].includes(options.tool) ||
+        Object.hasOwn(ROOM_TOOLS, options.tool) ||
+        ["floor", "wall", "erase", "select"].includes(options.tool) ||
         (isFloor(dungeon, hover) && !objectAt(dungeon, hover));
       c.fillStyle = valid ? "rgba(237,199,133,.17)" : "rgba(225,116,91,.2)";
       c.strokeStyle = valid ? "#ebc584" : "#ee977e";
       c.lineWidth = 2;
       c.fillRect(
-        (hover.x - radius) * CELL,
-        (hover.y - radius) * CELL,
-        CELL * (radius * 2 + 1),
-        CELL * (radius * 2 + 1),
+        (hover.x - radiusX) * CELL,
+        (hover.y - radiusY) * CELL,
+        CELL * shape.width,
+        CELL * shape.height,
       );
       c.strokeRect(
-        (hover.x - radius) * CELL + 1,
-        (hover.y - radius) * CELL + 1,
-        CELL * (radius * 2 + 1) - 2,
-        CELL * (radius * 2 + 1) - 2,
+        (hover.x - radiusX) * CELL + 1,
+        (hover.y - radiusY) * CELL + 1,
+        CELL * shape.width - 2,
+        CELL * shape.height - 2,
       );
       if (Object.hasOwn(CONTENT, options.tool)) {
         c.save();
@@ -339,6 +415,10 @@ function drawSprite(
   time: number,
 ): void {
   shadow(c);
+  if (isAdvancedObject(type)) {
+    drawMechanism(c, type, rotation, time);
+    return;
+  }
   if (type === "entrance") {
     c.fillStyle = "#253b36";
     c.fillRect(-15, -15, 30, 29);
@@ -555,6 +635,193 @@ function drawSprite(
       c.stroke();
     }
   }
+}
+function drawMechanism(
+  c: CanvasRenderingContext2D,
+  type: ObjectType,
+  rotation: number,
+  time: number,
+): void {
+  const def = CONTENT[type];
+  c.fillStyle = def.color;
+  c.strokeStyle = "#21352d";
+  c.lineWidth = 2;
+  if (def.behavior === "enemy") {
+    c.beginPath();
+    c.roundRect(-15, -19, 30, 36, type === "boss" ? 4 : 12);
+    c.fill();
+    c.stroke();
+    if (type === "bat") {
+      c.beginPath();
+      c.moveTo(-9, -8);
+      c.lineTo(-24, -18);
+      c.lineTo(-22, 6);
+      c.lineTo(-10, 2);
+      c.moveTo(9, -8);
+      c.lineTo(24, -18);
+      c.lineTo(22, 6);
+      c.lineTo(10, 2);
+      c.fill();
+    }
+    if (type === "boss") {
+      c.fillStyle = "#eacb7b";
+      c.beginPath();
+      c.moveTo(-15, -20);
+      c.lineTo(-19, -31);
+      c.lineTo(-7, -24);
+      c.lineTo(0, -33);
+      c.lineTo(7, -24);
+      c.lineTo(19, -31);
+      c.lineTo(15, -20);
+      c.fill();
+    }
+    c.fillStyle = "#202723";
+    c.fillRect(-8, -9, 5, 5);
+    c.fillRect(3, -9, 5, 5);
+    c.fillRect(-4, 5, 8, 3);
+    if (type === "shield") {
+      c.fillStyle = "#b3c4ad";
+      c.beginPath();
+      c.moveTo(1, 0);
+      c.lineTo(20, -5);
+      c.lineTo(18, 13);
+      c.lineTo(10, 21);
+      c.lineTo(2, 13);
+      c.fill();
+      c.stroke();
+    }
+  } else if (def.behavior === "environment" || type === "lava") {
+    c.globalAlpha *= 0.8;
+    c.beginPath();
+    c.ellipse(0, 3, 21, 15, 0, 0, Math.PI * 2);
+    c.fill();
+    c.stroke();
+    c.strokeStyle = "#d7ece0";
+    for (let i = -1; i <= 1; i++) {
+      c.beginPath();
+      c.moveTo(-14, i * 7);
+      c.quadraticCurveTo(0, i * 7 - 7, 14, i * 7);
+      c.stroke();
+    }
+  } else if (
+    [
+      "stairs",
+      "elevator",
+      "teleporter",
+      "teleport-trap",
+      "checkpoint",
+    ].includes(type)
+  ) {
+    c.strokeStyle = def.color;
+    c.lineWidth = 3;
+    if (type === "stairs" || type === "elevator") {
+      for (let i = 0; i < 5; i++) {
+        c.fillStyle = i % 2 ? "#748f88" : "#a4bbb0";
+        c.fillRect(-18 + i * 3, 17 - i * 7, 33 - i * 3, 5);
+      }
+    } else {
+      c.beginPath();
+      c.ellipse(0, 0, 17, 22, 0, 0, Math.PI * 2);
+      c.stroke();
+      c.beginPath();
+      c.ellipse(0, 0, 10, 15, 0, 0, Math.PI * 2);
+      c.stroke();
+      c.fillStyle = "#b2ddc4";
+      c.fillRect(-3, -6, 6, 12);
+    }
+  } else if (def.behavior === "trap") {
+    c.fillStyle = "#3d4540";
+    c.fillRect(-20, -16, 40, 34);
+    c.strokeStyle = def.color;
+    c.strokeRect(-20, -16, 40, 34);
+    c.save();
+    c.rotate(
+      (rotation * Math.PI) / 2 +
+        (type === "blade" || type === "saw" ? time / 900 : 0),
+    );
+    if (["blade", "saw"].includes(type)) {
+      for (let i = 0; i < 8; i++) {
+        c.rotate(Math.PI / 4);
+        c.beginPath();
+        c.moveTo(0, 0);
+        c.lineTo(5, -19);
+        c.lineTo(-5, -10);
+        c.closePath();
+        c.fillStyle = def.color;
+        c.fill();
+      }
+    } else {
+      c.fillStyle = def.color;
+      c.beginPath();
+      c.moveTo(0, -17);
+      c.lineTo(12, 4);
+      c.lineTo(4, 4);
+      c.lineTo(4, 16);
+      c.lineTo(-4, 16);
+      c.lineTo(-4, 4);
+      c.lineTo(-12, 4);
+      c.closePath();
+      c.fill();
+    }
+    c.restore();
+  } else if (def.behavior === "loot") {
+    c.fillStyle = def.color;
+    c.beginPath();
+    c.moveTo(0, -18);
+    c.lineTo(15, 0);
+    c.lineTo(0, 19);
+    c.lineTo(-15, 0);
+    c.closePath();
+    c.fill();
+    c.stroke();
+    c.strokeStyle = "#fff1b4";
+    c.beginPath();
+    c.moveTo(-7, 0);
+    c.lineTo(7, 0);
+    c.moveTo(0, -9);
+    c.lineTo(0, 9);
+    c.stroke();
+  } else {
+    c.fillStyle = ["block", "barrel", "pillar", "breakable-wall"].includes(type)
+      ? "#9f8662"
+      : "#4a6b68";
+    c.beginPath();
+    c.roundRect(-18, -18, 36, 36, type === "barrel" ? 12 : 4);
+    c.fill();
+    c.strokeStyle = def.color;
+    c.stroke();
+    const glyph: Record<string, string> = {
+      plate: "↓",
+      lever: "╱",
+      button: "●",
+      gate: "╫",
+      mirror: "╱",
+      timer: "◷",
+      counter: "#",
+      "and-gate": "&",
+      "or-gate": "∨",
+      "not-gate": "!",
+      proximity: "◎",
+      repeater: "↻",
+      conveyor: "→",
+      platform: "↔",
+      "spawn-zone": "+",
+      npc: "?",
+      "hidden-passage": "⋮",
+      bridge: "═",
+      block: "■",
+      barrel: "✦",
+      pillar: "║",
+      "breakable-wall": "▦",
+      "color-switch": "◆",
+    };
+    c.fillStyle = def.color;
+    c.font = "bold 23px sans-serif";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(glyph[type] ?? "◇", 0, 1);
+  }
+  c.textBaseline = "alphabetic";
 }
 function drawHero(c: CanvasRenderingContext2D, dead: boolean): void {
   shadow(c);

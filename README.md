@@ -1,74 +1,64 @@
 # Dungeon Architect
 
-The player is not the hero. The player is the Dungeon Architect.
+A mobile-first dungeon builder with deterministic adventures, online publishing, verified replays, and tools for improving a dungeon from player feedback. TypeScript, Canvas 2D, Fastify, SQLite, and Capacitor.
 
-A mobile-friendly, offline-capable first playable slice of the **build → test → publish → watch → improve** loop. Built with TypeScript, Canvas 2D, and Vite, with a deterministic simulation that also runs without a browser.
+## Run locally
 
-## Play locally
-
-Requires Node.js 22.12+, 24, or 26+ (Node 24 recommended).
+Requires Node.js 24 or newer:
 
 ```sh
 npm ci
-npm run dev
-```
-
-Open the URL printed by Vite, normally **http://127.0.0.1:5173**. If that port is occupied, use `npm run dev -- --port 5188`.
-
-For the production build and offline caching:
-
-```sh
 npm run build
-npm run preview
+npm run server
 ```
 
-Open the preview URL once while connected and allow the service worker to finish installing. The production app, art, and fonts are then cached for offline reloads on that origin. HTTPS or localhost is required for service workers. The development server intentionally does not register one.
+Open **http://127.0.0.1:5187**. Register from **Community > Profile**. The database is saved in `data/dungeon-architect.sqlite`. Set `PORT` and `ALLOWED_ORIGINS` together if that port is occupied.
 
-## First adventure
+For development, leave the server running and use `npm run dev` in another terminal. Vite defaults to port 5173 and proxies the API to 5187; `DUNGEON_API_URL` overrides that target. Server variables are read from the process; `.env.example` is documentation, not an automatically loaded configuration file.
 
-1. Start with **Mossveil Crypt**, or choose **New dungeon** for a blank grid.
-2. Carve rooms and corridors; place monsters, traps, a key, a door, an entrance, and treasure. Every tile and object uses construction points.
-3. **Validate dungeon**, then **Test dungeon**. Reach the treasure yourself to unlock publishing.
-4. **Publish dungeon** stores an immutable local version. **Invite 6 adventurers** runs six simulated play styles using the same player rules.
-5. Watch any attempt, scrub its replay, change playback speed, or jump to death. Inspect traffic and death counts on the heatmap.
-6. Change the draft, complete a fresh test, and publish version 2. Version 1 and its attempts remain available for comparison.
+## Build, play, improve
+
+1. Start with Mossveil Crypt, New dungeon, a template, or First steps.
+2. Carve rooms; place encounters, an entrance, and treasure within the construction budget.
+3. Validate and personally complete Test dungeon. Editing invalidates the proof.
+4. Publish dungeon creates a local version; Publish online uploads after independent server verification.
+5. Invite six labeled simulated adventurers locally, or let another account discover and play online.
+6. Inspect replays, traffic, deaths, routes, and completion statistics. Edit, retest, and republish.
+
+Offline editing/testing requires no account. Open the production website once to cache its assets for offline reloads. Browser saves belong to their origin/profile. Local limits: 100 versions, 180 published attempts, 20 personal tests, and 10 recoverable drafts. JSON export, recovery, and cloud drafts provide additional copies.
 
 ## Controls
 
-| Mode             | Controls                                                                                                                                        |
-| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| Build            | Choose a tool, then tap/click a tile. Drag to paint. Right-click to erase.                                                                      |
-| Selection        | Select tool, then click an object. Shift-click selects multiple objects. Move, duplicate, rotate, and delete are available in the inspector.    |
-| Keyboard editing | Focus the canvas; arrows move the cursor, Enter places. Ctrl/Cmd+Z undoes, Ctrl/Cmd+Shift+Z redoes, R rotates, Delete removes selected objects. |
-| Camera           | Zoom buttons; Alt-drag or middle-drag to pan. Fit resets the view.                                                                              |
-| Test             | WASD/arrows or the touch pad move. Bumping an enemy attacks it; Space attacks adjacent enemies; E waits.                                        |
-| Replay           | Play/pause, restart, 0.5×–4× speed, timeline seeking, event jumps, and jump to death.                                                           |
+| Area      | Controls                                                                                                        |
+| --------- | --------------------------------------------------------------------------------------------------------------- |
+| Editor    | Tap/click to place; drag to paint; Select for objects; Shift-click for multiple selection; right-click to erase |
+| Touch     | Pinch zoom, two-finger pan, long-press actions; bottom construction tray                                        |
+| Keyboard  | Canvas arrows/Enter; Ctrl/Cmd+Z undo, Shift+Z redo; Ctrl/Cmd+C/V copy/paste; R rotate; Delete remove            |
+| Adventure | WASD/arrows or direction pad; bump enemies to attack; Space attacks; E waits; Interact and Ability buttons      |
+| Camera    | Zoom/Fit; Alt-drag or middle-drag; Follow adventurer or Floor overview                                          |
+| Replay    | Pause, seek, restart, 0.5x/1x/2x/4x, event/death jumps                                                          |
 
-Each input advances a 250 ms simulation turn. Enemies guard their tiles; archers attack along clear lines. Keys are permanent and unlock every door. Spikes and fire have cooldowns. The treasure ends the run. Your last 20 personal test recordings are saved, including failures; **Replay last test** opens the newest for the current dungeon.
+## Implemented systems
 
-## Included
+Four connected floors, 72 object types, eight themes, five normalized adventurer builds, configurable monsters/bosses, environmental interactions, event/condition/action logic, NPC quests and resources, and eight templates. The editor includes transactional history, wiring-preserving duplication, patrol-aware transforms, and layers.
 
-- Transactional placement, budget enforcement, selection, movement, rotation, duplication, deletion, undo/redo, and JSON import/export.
-- One 15 × 13 floor, 160 construction points, four enemy types, spikes, fire, healing, keys, and doors.
-- Key-aware reachability, spawn safety, required-object checks, and mandatory completion verification against the exact current draft.
-- Seeded combat, bounded deterministic runs, versioned replay inputs, and events reconstructed from the original dungeon snapshot.
-- Local immutable publishing, six simulated adventurer policies, per-version analytics, death markers, and historical comparison.
-- Procedural dungeon art, optional synthesized sound, reduced motion, keyboard-accessible menus, a mobile construction tray, and a localization dictionary.
-- Offline production asset caching, local saves, and explicit feedback if device storage fails.
+Community features include accounts, discovery, profiles, follows/favorites, QR/share codes, friend challenges, leaderboards, progression, earned cosmetics, rotating challenges, moderation, cloud drafts, shared revision-checked workshops, branching campaigns, and guild world collections. Online results and rewards are server verified.
 
-## Check the game
+## Verify and package
 
 ```sh
 npx playwright install chromium
 npm run check
+npm run benchmark
+npm run native:sync
 ```
 
-`check` runs core tests, strict TypeScript compilation, a production build, and Chromium end-to-end tests at desktop and mobile viewport sizes. Browser checks cover construction, completion, publication, simulated attempts, replay seeking, failed test recordings, republishing, reload persistence, and offline production play. Screenshots and failure traces are written to the ignored `test-results/` directory. CI runs the same checks.
+Android requires Java 21 and the Android SDK through JAVA_HOME/ANDROID_HOME. Run `npm run android:debug`; output: `android/app/build/outputs/apk/debug/app-debug.apk`. The API 36 emulator smoke flow covers completion, publication, six simulated attempts, and replay seeking. iOS sources are generated; compilation requires Xcode on macOS.
 
-## Scope and next decisions
+Set `VITE_API_URL` to an HTTPS community host before building a connected native package. Without it, the native workshop works offline. Native authentication currently lasts for the app process. Custom invitation links use the dungeonarchitect scheme; HTTPS universal links need release-domain association files.
 
-This is a local browser vertical slice. Publishing does **not** upload anything, and the adventurers are clearly labeled simulations. LocalStorage is not a security boundary. Online authentication, server ownership/anti-cheat, public discovery, progression, moderation, native Android/iOS packaging, multi-floor dungeons, checkpoints, and advanced logic remain future milestones. Canvas gameplay is not yet fully accessible to screen readers. The 60 FPS target still needs profiling on physical mid-range phones; mobile browser emulation does not establish device performance.
+## Release status
 
-The local library retains up to 100 published versions and 180 published attempts; personal tests retain the latest 20. Dungeon export backs up the selected layout, not the full replay library. Keep the origin/browser profile stable to retain local saves.
+This is an extensively implemented, locally verified game, **not a claim that the entire product vision is finished or released**. Public hosting/CDN, signing/store release, physical Android/iOS validation, and audience-dependent balance/retention targets remain unverified. Structural checks and a completion proof do not exhaustively prove every possible puzzle state avoids softlocks. Shared editing uses optimistic revisions, not simultaneous cursor synchronization.
 
-See [architecture and simulation decisions](docs/ARCHITECTURE.md). Expand content only after playtesting this loop with people.
+See the [100-section audit](docs/IMPLEMENTATION_STATUS.md), [architecture](docs/ARCHITECTURE.md), [operations](docs/OPERATIONS.md), and unmodified [original design](docs/GAME_DESIGN.md).

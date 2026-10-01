@@ -1,3 +1,6 @@
+import { ROOM_TOOLS } from "../core/rooms";
+import { translatedKey } from "./localization";
+import { MECHANIC_DESCRIPTIONS } from "../core/advanced-content";
 const en: Record<string, string> = {
   "app.name": "Dungeon Architect",
   "app.tagline": "Every great adventure needs an architect.",
@@ -227,10 +230,10 @@ const en: Record<string, string> = {
   "guide.shortcuts":
     "Editor shortcuts: Ctrl/Cmd Z to undo, Shift Z to redo, R to rotate, Delete to remove selected objects. Shift-click selects several objects. Arrow keys move the canvas cursor; Enter places a piece.",
   "guide.scope":
-    "This first playable slice saves on your device. Export dungeon files to back up or share your creations. Online accounts, public discovery, and native mobile releases are future milestones.",
+    "The workshop works offline. Community connects to your game server for accounts, publishing, verified adventures, campaigns and shared creation. Advanced workshop adds logic and linked floors. Native project files are included; device builds and release testing are separate steps.",
   "new.title": "Start a new dungeon?",
   "new.body":
-    "Your current draft will be replaced. Published versions and their replays remain in your local library. Export the draft first if you want a backup.",
+    "Your current draft will be replaced and a recent-draft backup kept on this device. Published versions and their replays remain in your local library. Export important creations for a separate backup.",
   "new.confirm": "Create blank dungeon",
   "new.cancel": "Keep building",
   "generic.error": "That action could not be completed.",
@@ -269,12 +272,43 @@ const en: Record<string, string> = {
   "new.badge": "A new adventure",
 };
 
+for (const [id, room] of Object.entries(ROOM_TOOLS)) {
+  en[`tool.${id}`] = room.name;
+  en[`desc.${id}`] =
+    `Carve a ${room.width} by ${room.height} room. Connect it with corridors.`;
+}
+for (const category of ["structural", "puzzle", "utility", "environment"])
+  en[`category.${category}`] = category[0].toUpperCase() + category.slice(1);
+for (const [id, description] of Object.entries(MECHANIC_DESCRIPTIONS)) {
+  en[`object.${id}`] = id
+    .split("-")
+    .map((s) => s[0].toUpperCase() + s.slice(1))
+    .join(" ");
+  en[`desc.${id}`] = description;
+}
+Object.assign(en, {
+  "storage.invalidConfiguration":
+    "Object settings or logic connections are invalid.",
+  "editor.maxFloors": "A dungeon can have up to four floors.",
+  "event.signal": "Mechanism triggered",
+  "event.interact": "Object activated",
+  "event.ability": "Adventurer ability",
+  "event.loot": "Optional treasure collected",
+  "event.teleport": "Passage traversed",
+  "event.environment": "Environment changed",
+  "event.phase": "Boss phase changed",
+  "event.quest": "Quest updated",
+  "validation.link": "A passage needs a linked destination.",
+  "validation.logic": "A logic connection references a missing object.",
+});
+
 export function t(
   key: string,
   values: Record<string, string | number> = {},
 ): string {
-  return (en[key] ?? key).replace(/\{(\w+)\}/g, (match, name: string) =>
-    String(values[name] ?? match),
+  return translatedKey(key, en[key] ?? key).replace(
+    /\{(\w+)\}/g,
+    (match, name: string) => String(values[name] ?? match),
   );
 }
 export function errorText(error: unknown): string {
