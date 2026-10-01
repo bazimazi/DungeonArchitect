@@ -1,0 +1,11 @@
+{
+  "name": "Dungeon Architect",
+  "short_name": "Dungeon Architect",
+  "description": "Build, test, and learn from your own dungeons.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#111816",
+  "theme_color": "#151c1b",
+  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+}
