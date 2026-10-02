@@ -31,7 +31,7 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: "npm run dev -- --port 5318",
+      command: "npm run dev -- --host 127.0.0.1 --port 5318 --strictPort",
       url: "http://127.0.0.1:5318",
       env: { DUNGEON_API_URL: "http://127.0.0.1:5317" },
       reuseExistingServer: false,

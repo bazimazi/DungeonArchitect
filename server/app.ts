@@ -20,6 +20,7 @@ import { EconomyService } from "./economy";
 import { WorldService } from "./worlds";
 import { CLIENT_EVENTS } from "../src/shared/telemetry";
 import { currentSeason } from "../src/shared/economy";
+import { parseDiscovery } from "./discovery";
 
 export interface ServerOptions {
   databasePath?: string;
@@ -251,12 +252,23 @@ export async function buildServer(options: ServerOptions = {}) {
     );
     screenText(displayName);
     const interests = parseTags(body.interests ?? JSON.parse(user.interests));
-    db.run(
-      "UPDATE users SET display_name=?,interests=? WHERE id=?",
-      displayName,
-      JSON.stringify(interests),
-      user.id,
-    );
+    const discovery =
+      body.discovery === undefined ? undefined : parseDiscovery(body.discovery);
+    db.transaction(() => {
+      db.run(
+        "UPDATE users SET display_name=?,interests=? WHERE id=?",
+        displayName,
+        JSON.stringify(interests),
+        user.id,
+      );
+      if (discovery)
+        db.run(
+          "INSERT INTO discovery_preferences VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET difficulty=excluded.difficulty,session=excluded.session",
+          user.id,
+          discovery.difficulty,
+          discovery.session,
+        );
+    });
     return progression.profile(user.id);
   });
   app.get("/api/players/:handle", async (request) => {

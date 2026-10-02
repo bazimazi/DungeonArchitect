@@ -1,4 +1,5 @@
 import type { Action, Dungeon, Replay } from "../core/types";
+import type { DiscoveryPreferences } from "./discovery";
 
 export const TAGS = [
   "Combat",
@@ -40,6 +41,7 @@ export interface PlayerProfile {
   materials: number;
   essence: number;
   interests: DungeonTag[];
+  discovery: DiscoveryPreferences;
   mastery: Record<string, number>;
   achievements: string[];
   followers: number;

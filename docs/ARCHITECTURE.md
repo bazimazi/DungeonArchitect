@@ -21,7 +21,7 @@ Signals are bounded at 256 per turn and 512 scheduled effects. Verification uses
 
 Commands clone, check budget and commit atomically; errors leave history unchanged. The last 100 edits are undoable. Copy/paste remaps internal IDs/rules; moves, mirrors and copies transform patrol routes. Floors are 15 by 13, at most four, with 160 construction points each.
 
-Static validation checks required objects, floors, key-aware reachability, links, budget and configured spawn attack range. Mandatory replay verification proves at least one feasible route for the exact snapshot. All-state softlock checking for arbitrary rules is not implemented. Chambers in analytics are inferred from connected open areas at least two tiles wide; corridors remain separate.
+Static validation checks required objects, floors, key-aware reachability, sealed one-way areas, links, budget and configured spawn attack range. Mandatory replay verification proves at least one feasible route for the exact snapshot. All-state softlock checking for arbitrary rules is not implemented. Chambers in analytics are inferred from connected open areas at least two tiles wide; corridors remain separate.
 
 Five dungeon-selected builds normalize starting stats. Loot affects the current run. Account progression unlocks design possibilities and earned cosmetics, not paid combat strength.
 
@@ -31,7 +31,7 @@ SQLite uses WAL, foreign keys, transactions, indexes and a bounded statement cac
 
 Publishing reconstructs a clear before saving an immutable version. Attempts receive server seeds and 24-hour tickets; submitted inputs determine outcomes, rewards and analytics. Duplicate requests re-check committed ticket state. Account/dungeon permissions are checked again after asynchronous verification. Ledger uniqueness and reward caps prevent repeated first-clear payouts.
 
-Online statistics include all verified attempts; the UI loads the latest 30 recordings for detailed playback. Difficulty is descriptive; internal challenge rating is heuristic. Ranked feeds combine recent and recently active candidates, diversify creators, and track distinct authenticated exposure. Small audiences expand after engagement from distinct external players; repeated views/owner attempts cannot buy expansion.
+Online statistics include all verified attempts; the UI loads the latest 30 recordings for detailed playback. Difficulty is descriptive; internal challenge rating is heuristic. Ranked feeds combine recent and recently active candidates, diversify creators, and track distinct authenticated exposure. Private difficulty/session preferences add modest ranking weights, using distinct completed adventures for adaptive defaults. Explicit preferences never remove unexplored work. Small audiences expand after engagement from distinct external players; repeated views/owner attempts cannot buy expansion.
 
 Cloud/shared drafts use expected revisions. Listing a draft does not adopt a new write base; explicit loading does. Campaign chapters pin public versions with clear/flawless/optional-gold prerequisites. Guild members contribute their own worlds. Co-creation is asynchronous and rejects conflicts.
 
@@ -39,7 +39,7 @@ Cloud/shared drafts use expected revisions. Listing a draft does not adopt a new
 
 The production worker precaches hashed assets and self-hosted fonts, never account responses or API writes. Local persistence failures warn without discarding in-memory work. Recovery keeps ten replaced drafts. Account-specific outbox entries retry independently; expired/rejected entries can be retained as local replays and explicitly removed from retries.
 
-Rendering interpolates the camera without changing outcomes. Transient effects derive from events rather than unbounded physics entities. Optional synthesized sound includes theme ambience and danger/boss intensity. Contrast, text scaling, reduced motion, keyboard menus and touch controls are supported; full nonvisual Canvas gameplay is not.
+Rendering interpolates the camera without changing outcomes. One reusable Canvas surface caches static terrain, keyed by immutable tile-array identity, theme, floor, grid, heatmap identity and pixel density; dynamic entities and effects remain live. A single surface bounds cache memory across history and floors. Transient effects derive from events rather than unbounded physics entities. Optional synthesized sound includes theme ambience and danger/boss intensity. Contrast, text scaling, reduced motion, keyboard menus and touch controls are supported. A persistent polite live region describes keyboard cursor coordinates, nearby objects, health and recent action events; I repeats the description. Full assistive-technology usability testing remains external.
 
 English is shipped. Keyed/extracted static messages support locale registration, interpolation and RTL. `npm run locales:extract` refreshes the catalog without rewriting source. The catalog includes UI, content and server messages; additional languages still require translation and linguistic/RTL review.
 

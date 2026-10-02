@@ -4,6 +4,7 @@ import type { PlayerProfile } from "../src/shared/community";
 import { Database } from "./database";
 import type { UserRow } from "./auth";
 import { requireValue } from "./errors";
+import { discoveryPreferences } from "./discovery";
 
 export interface Reward {
   xp: number;
@@ -72,6 +73,7 @@ export class ProgressionService {
       ...totals,
       level: architectLevel(totals.xp),
       interests: JSON.parse(user.interests),
+      discovery: discoveryPreferences(this.db, user.id),
       mastery: Object.fromEntries(
         this.db
           .all<{ category: string; xp: number }>(

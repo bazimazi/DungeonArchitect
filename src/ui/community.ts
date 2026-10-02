@@ -7,6 +7,11 @@ import type { ClientEvent } from "../shared/telemetry";
 import { CommunityExtras } from "./community-extras";
 import { CommunityApi } from "../services/community";
 import { ERAS, TAGS, nextLevelXp } from "../shared/community";
+import {
+  DEFAULT_DISCOVERY,
+  DIFFICULTY_PREFERENCES,
+  SESSION_PREFERENCES,
+} from "../shared/discovery";
 import type {
   AttemptTicket,
   BuildChallenge,
@@ -408,10 +413,20 @@ export class CommunityHub {
         </div>
         <div class="community-columns">
           <form data-form="profile" class="community-form">
-            ${field(msg("Display name"), "displayName", p.displayName, "text", 'required minlength="2" maxlength="40"')}${tags(p.interests)}<button
-              class="button primary"
-            >
-              Save preferences</button
+            ${field(msg("Display name"), "displayName", p.displayName, "text", 'required minlength="2" maxlength="40"')}${tags(p.interests)}
+            <label for="preferred-difficulty">Preferred difficulty</label>
+            <select id="preferred-difficulty" name="preferredDifficulty">
+              ${DIFFICULTY_PREFERENCES.map((value) => html`<option value="${value}" ${value === (p.discovery ?? DEFAULT_DISCOVERY).difficulty ? "selected" : ""}>${esc(msg(value === "adaptive" ? "Learn from my adventures" : value === "any" ? "Any difficulty" : value))}</option>`).join("")}
+            </select>
+            <label for="preferred-session">Preferred session length</label>
+            <select id="preferred-session" name="preferredSession">
+              ${SESSION_PREFERENCES.map((value) => html`<option value="${value}" ${value === (p.discovery ?? DEFAULT_DISCOVERY).session ? "selected" : ""}>${esc(msg({ adaptive: "Learn from my adventures", any: "Any length", short: "Short: up to 1 minute", medium: "Medium: 1–2 minutes", long: "Long: 2 minutes or more" }[value]))}</option>`).join("")}
+            </select>
+            <p>
+              Preferences influence recommendations while leaving room for new
+              discoveries.
+            </p>
+            <button class="button primary">Save preferences</button
             >${btn("logout", msg("Sign out"))}
           </form>
           <section>
@@ -1130,6 +1145,10 @@ export class CommunityHub {
       this.api.player = await this.api.request<PlayerProfile>("/me", "PATCH", {
         displayName: value("displayName"),
         interests: form.getAll("tags"),
+        discovery: {
+          difficulty: value("preferredDifficulty"),
+          session: value("preferredSession"),
+        },
       });
       await this.render();
       this.message(msg("Preferences saved."));

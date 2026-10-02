@@ -1,5 +1,6 @@
 import { html, msg } from "./localization";
 import { cameraFrame } from "./camera";
+import { describeBoard } from "./accessibility";
 import { ROOM_TOOLS } from "../core/rooms";
 import type { RoomTool } from "../core/rooms";
 import { TEMPLATES, createTemplate } from "../core/templates";
@@ -27,6 +28,7 @@ import type {
   Category,
   Direction,
   Dungeon,
+  GameEvent,
   Point,
   Replay,
   Tool,
@@ -160,6 +162,7 @@ export class App {
   private toastTimer = 0;
   private reducedMotionMedia = matchMedia("(prefers-reduced-motion: reduce)");
   private toastElement = document.createElement("div");
+  private boardStatus = document.createElement("p");
   private dialog = document.createElement("dialog");
   private pendingImport: Dungeon | null = null;
   private communityApi = new CommunityApi();
@@ -243,6 +246,15 @@ export class App {
     this.toastElement.setAttribute("role", "status");
     this.toastElement.setAttribute("aria-live", "polite");
     document.body.append(this.toastElement);
+    this.boardStatus.id = "dungeon-description";
+    this.boardStatus.className = "screen-reader-text";
+    this.boardStatus.setAttribute("role", "status");
+    this.boardStatus.setAttribute("aria-live", "polite");
+    this.boardStatus.setAttribute("aria-atomic", "true");
+    document.body.append(this.boardStatus);
+    this.root.addEventListener("focusin", (event) => {
+      if (event.target === this.renderer?.canvas) this.describeBoard();
+    });
     this.dialog.className = "dialog";
     this.dialog.addEventListener("pointerdown", () => {
       this.blockContextRelease = false;
@@ -486,6 +498,7 @@ export class App {
                 tabindex="0"
                 role="application"
                 aria-label="${t("canvas.label")}"
+                aria-describedby="dungeon-description"
               ></canvas
               >${this.mode === "test" && this.simulation?.state.status !== "playing" ? this.runOverlay() : ""}<span
                 class="map-compass"
@@ -1589,6 +1602,11 @@ export class App {
       a: "left",
     };
     const key = event.key.length === 1 ? event.key.toLowerCase() : event.key;
+    if (key === "i" && event.target === this.renderer.canvas) {
+      event.preventDefault();
+      this.describeBoard();
+      return;
+    }
     if (this.mode === "test") {
       if (directions[key]) {
         event.preventDefault();
@@ -1647,6 +1665,7 @@ export class App {
             ),
           };
           this.showCursor = true;
+          this.describeBoard();
         } else if (
           event.target === this.renderer.canvas &&
           (key === "Enter" || key === " ")
@@ -1654,6 +1673,7 @@ export class App {
           event.preventDefault();
           this.paint(this.cursor, this.tool, event.shiftKey);
           this.renderer.canvas.focus();
+          this.describeBoard();
         }
       } catch (error) {
         this.toast(errorText(error), true);
@@ -1682,6 +1702,18 @@ export class App {
     this.render();
     this.renderer.fit();
     this.renderer.canvas.focus({ preventScroll: true });
+  }
+  private describeBoard(events: GameEvent[] = []): void {
+    const state =
+      this.mode === "test" || this.mode === "replay"
+        ? this.simulation?.state
+        : undefined;
+    this.boardStatus.textContent = describeBoard(
+      this.activeDungeon,
+      state?.player ?? this.cursor,
+      state,
+      events,
+    );
   }
   private act(action: Action): void {
     if (
@@ -1719,6 +1751,7 @@ export class App {
       );
     if (state.status !== "playing") this.recordTest();
     this.render();
+    this.describeBoard(events);
     if (this.library.warning) this.toast(t("storage.saveFailed"), true);
   }
   private inviteAdventurers(): void {
@@ -1928,6 +1961,7 @@ export class App {
     this.simulation = reconstructReplay(this.replay, this.replayTick);
     this.replayElapsed = 0;
     this.updateReplayUI();
+    this.describeBoard();
   }
   private updateReplayUI(): void {
     if (this.mode !== "replay" || !this.simulation) return;

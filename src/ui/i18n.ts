@@ -93,7 +93,7 @@ const en: Record<string, string> = {
   "kit.rotate": "Orientation",
   "kit.empty": "Nothing selected",
   "canvas.label":
-    "Interactive dungeon. Use arrow keys to move the cursor and Enter to place the selected piece. In test mode, arrow keys move the adventurer.",
+    "Interactive dungeon. Use arrow keys to move the cursor and Enter to place the selected piece. In test mode, arrow keys move the adventurer. Press I to inspect the current tile or surroundings.",
   "canvas.hint": "Tap to place · Drag to paint · Right-click to erase",
   "canvas.mobileHint": "Choose a piece below, then tap the dungeon.",
   "canvas.testHint": "WASD / arrows to move · Space to attack · E to wait",

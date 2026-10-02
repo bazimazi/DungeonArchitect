@@ -27,6 +27,20 @@ const PAD = 24;
 const noise = (x: number, y: number): number =>
   ((x * 374761393 + y * 668265263) ^ (x * 1274126177)) >>> 0;
 
+// One reusable surface bounds memory even across editor history and four floors.
+// Editor transactions replace tile arrays; gameplay never changes the saved geometry.
+let terrainCache:
+  | {
+      canvas: HTMLCanvasElement;
+      tiles: Dungeon["tiles"];
+      theme: string;
+      floor: number;
+      grid: boolean;
+      heatmap?: DungeonAnalytics;
+      dpr: number;
+    }
+  | undefined;
+
 /** Procedural art is presentation only. Simulation owns every gameplay result. */
 export class DungeonRenderer {
   floor = 0;
@@ -56,9 +70,25 @@ export class DungeonRenderer {
     this.zoom = 1;
     this.pan = { x: 0, y: 0 };
   }
-  draw(options: RenderOptions): void {
-    const { dungeon, state, grid, reducedMotion, time } = options;
-    const c = this.context;
+  private terrain(options: RenderOptions): HTMLCanvasElement {
+    const { dungeon, state, grid } = options;
+    const showGrid = grid && !state;
+    const dpr = this.canvas.width / 768;
+    if (
+      terrainCache &&
+      terrainCache.tiles === dungeon.tiles &&
+      terrainCache.theme === dungeon.theme &&
+      terrainCache.floor === this.floor &&
+      terrainCache.grid === showGrid &&
+      terrainCache.heatmap === options.heatmap &&
+      terrainCache.dpr === dpr
+    )
+      return terrainCache.canvas;
+    const canvas = terrainCache?.canvas ?? document.createElement("canvas");
+    canvas.width = 768 * dpr;
+    canvas.height = 672 * dpr;
+    const c = canvas.getContext("2d")!;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
     const hues: Record<string, number> = {
       "forgotten-cave": 90,
       "ancient-ruins": 38,
@@ -70,19 +100,6 @@ export class DungeonRenderer {
       "alien-facility": 170,
     };
     const hue = hues[dungeon.theme];
-    const dpr = this.canvas.width / 768;
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
-    c.fillStyle = "#111a18";
-    c.fillRect(0, 0, 768, 672);
-    const background = c.createRadialGradient(380, 310, 50, 380, 310, 480);
-    background.addColorStop(0, "#23332b");
-    background.addColorStop(1, "#101917");
-    c.fillStyle = background;
-    c.fillRect(0, 0, 768, 672);
-    c.save();
-    c.translate(384 + this.pan.x, 336 + this.pan.y);
-    c.scale(this.zoom, this.zoom);
-    c.translate(-384, -336);
     c.fillStyle = "#66746a";
     c.font = "9px monospace";
     c.textAlign = "center";
@@ -213,6 +230,39 @@ export class DungeonRenderer {
           }
         }
       }
+    terrainCache = {
+      canvas,
+      tiles: dungeon.tiles,
+      theme: dungeon.theme,
+      floor: this.floor,
+      grid: showGrid,
+      heatmap: options.heatmap,
+      dpr,
+    };
+    return canvas;
+  }
+  draw(options: RenderOptions): void {
+    const { dungeon, state, reducedMotion, time } = options;
+    const c = this.context;
+    const dpr = this.canvas.width / 768;
+    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.fillStyle = "#111a18";
+    c.fillRect(0, 0, 768, 672);
+    const background = c.createRadialGradient(380, 310, 50, 380, 310, 480);
+    background.addColorStop(0, "#23332b");
+    background.addColorStop(1, "#101917");
+    c.fillStyle = background;
+    c.fillRect(0, 0, 768, 672);
+    c.save();
+    c.translate(384 + this.pan.x, 336 + this.pan.y);
+    c.scale(this.zoom, this.zoom);
+    c.translate(-384, -336);
+    c.drawImage(this.terrain(options), 0, 0, 768, 672);
+    c.translate(PAD, PAD);
+    c.beginPath();
+    c.rect(0, 0, CELL * 15, CELL * 13);
+    c.clip();
+    c.translate(0, -this.floor * 13 * CELL);
     // A few wall sconces add a warm, flickering pool of light to the cave.
     for (const p of [
       { x: 1, y: 1 },

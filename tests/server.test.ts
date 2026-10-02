@@ -62,6 +62,45 @@ async function publish(
 }
 
 describe("persistent authoritative server", () => {
+  it("persists private discovery preferences, preserves omitted settings, and rejects invalid updates atomically", async () => {
+    const s = await setup(),
+      owner = await register(s, "preferences_owner");
+    expect(owner.profile.discovery).toEqual({
+      difficulty: "adaptive",
+      session: "adaptive",
+    });
+    const patch = (payload: unknown) =>
+      s.app.inject({
+        method: "PATCH",
+        url: "/api/me",
+        headers: { cookie: owner.cookie },
+        payload: payload as Record<string, unknown>,
+      });
+    expect(
+      (
+        await patch({ discovery: { difficulty: "Hard", session: "short" } })
+      ).json().discovery,
+    ).toEqual({ difficulty: "Hard", session: "short" });
+    expect(
+      (await patch({ displayName: "Changed name" })).json().discovery,
+    ).toEqual({ difficulty: "Hard", session: "short" });
+    expect(
+      (
+        await patch({
+          displayName: "Must not save",
+          discovery: { difficulty: "impossible", session: "short" },
+        })
+      ).statusCode,
+    ).toBe(400);
+    const me = (
+      await s.app.inject({ url: "/api/me", headers: { cookie: owner.cookie } })
+    ).json();
+    expect(me.player.displayName).toBe("Changed name");
+    const publicProfile = (
+      await s.app.inject({ url: "/api/players/preferences_owner" })
+    ).json();
+    expect(publicProfile).not.toHaveProperty("discovery");
+  });
   it("measures post-attempt returns only for mature distinct-player cohorts", async () => {
     const server = await buildServer({
       databasePath: ":memory:",

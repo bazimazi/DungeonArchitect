@@ -60,6 +60,17 @@ test("two architects publish, discover, challenge, complete, earn rewards and wa
     .click();
   const hub = page.locator(".community-dialog:not(.mechanics-dialog)");
   await createAccount(page, creator);
+  await hub
+    .getByLabel("Preferred difficulty", { exact: true })
+    .selectOption("Hard");
+  await hub.getByLabel("Preferred session length").selectOption("short");
+  await hub
+    .getByRole("button", { name: "Save preferences", exact: true })
+    .click();
+  await expect(
+    hub.getByLabel("Preferred difficulty", { exact: true }),
+  ).toHaveValue("Hard");
+  await expect(hub.getByLabel("Preferred session length")).toHaveValue("short");
   await hub.getByRole("button", { name: "Drafts", exact: true }).click();
   await hub
     .getByRole("button", { name: "Save current draft to cloud" })

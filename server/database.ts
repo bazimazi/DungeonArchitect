@@ -130,6 +130,8 @@ export class Database {
       INSERT OR IGNORE INTO migrations VALUES(10,datetime('now'));
       CREATE INDEX IF NOT EXISTS attempts_version_player_time ON attempts(version_id,player_id,created_at);
       INSERT OR IGNORE INTO migrations VALUES(11,datetime('now'));
+      CREATE TABLE IF NOT EXISTS discovery_preferences(user_id TEXT PRIMARY KEY REFERENCES users(id),difficulty TEXT NOT NULL,session TEXT NOT NULL);
+      INSERT OR IGNORE INTO migrations VALUES(12,datetime('now'));
     `);
   }
 }

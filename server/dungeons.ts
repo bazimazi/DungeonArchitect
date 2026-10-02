@@ -24,7 +24,12 @@ import {
   screenText,
 } from "./policies";
 import { ProgressionService } from "./progression";
-import { audienceLimit } from "./discovery";
+import {
+  audienceLimit,
+  discoveryPreferences,
+  preferenceScorer,
+} from "./discovery";
+import { DEFAULT_DISCOVERY } from "../src/shared/discovery";
 
 export interface DungeonRow {
   id: string;
@@ -630,9 +635,20 @@ export class DungeonService {
     const abandoned = new Set(
       history.filter((h) => h.outcome === "abandoned").map((h) => h.version_id),
     );
-    const preferredSeconds = history.length
-      ? history.reduce((sum, h) => sum + h.ticks / 4, 0) / history.length
-      : 0;
+    const preferences = preferenceScorer(
+      viewer ? discoveryPreferences(this.db, viewer.id) : DEFAULT_DISCOVERY,
+      history,
+    );
+    const ratings = new Map(
+      cards.length
+        ? this.db
+            .all<{ id: string; challenge_rating: number }>(
+              `SELECT id,challenge_rating FROM versions WHERE id IN (${cards.map(() => "?").join(",")})`,
+              ...cards.map((c) => c.versionId),
+            )
+            .map((v) => [v.id, v.challenge_rating])
+        : [],
+    );
     if (category === "favorites") cards = cards.filter((c) => c.favorited);
     if (category === "following") cards = cards.filter((c) => c.following);
     if (category === "combat" || category === "puzzle" || category === "trap")
@@ -680,12 +696,7 @@ export class DungeonService {
         (card.following ? 10 : 0) +
         (completed.has(card.versionId) ? -15 : 0) +
         (abandoned.has(card.versionId) ? -20 : 0) +
-        (preferredSeconds && card.averageSeconds
-          ? Math.max(
-              0,
-              10 - Math.abs(card.averageSeconds - preferredSeconds) / 10,
-            )
-          : 0) +
+        preferences(card, ratings.get(card.versionId) ?? 50) +
         ((exposures.get(card.versionId)?.count ?? 0) < 20 && card.attempts < 10
           ? 20
           : 0) +

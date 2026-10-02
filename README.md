@@ -29,20 +29,20 @@ Offline editing/testing requires no account. Open the production website once to
 
 ## Controls
 
-| Area      | Controls                                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------------------------- |
-| Editor    | Tap/click to place; drag to paint; Select for objects; Shift-click for multiple selection; right-click to erase |
-| Touch     | Pinch zoom, two-finger pan, long-press actions; bottom construction tray                                        |
-| Keyboard  | Canvas arrows/Enter; Ctrl/Cmd+Z undo, Shift+Z redo; Ctrl/Cmd+C/V copy/paste; R rotate; Delete remove            |
-| Adventure | WASD/arrows or direction pad; bump enemies to attack; Space attacks; E waits; Interact and Ability buttons      |
-| Camera    | Zoom/Fit; Alt-drag or middle-drag; Follow adventurer or Floor overview                                          |
-| Replay    | Pause, seek, restart, 0.5x/1x/2x/4x, event/death jumps                                                          |
+| Area      | Controls                                                                                                                                   |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| Editor    | Tap/click to place; drag to paint; Select for objects; Shift-click for multiple selection; right-click to erase                            |
+| Touch     | Pinch zoom, two-finger pan, long-press actions; bottom construction tray                                                                   |
+| Keyboard  | Canvas arrows/Enter; Ctrl/Cmd+Z undo, Shift+Z redo; Ctrl/Cmd+C/V copy/paste; R rotate; Delete remove; I describes the tile or surroundings |
+| Adventure | WASD/arrows or direction pad; bump enemies to attack; Space attacks; E waits; Interact and Ability buttons                                 |
+| Camera    | Zoom/Fit; Alt-drag or middle-drag; Follow adventurer or Floor overview                                                                     |
+| Replay    | Pause, seek, restart, 0.5x/1x/2x/4x, event/death jumps                                                                                     |
 
 ## Implemented systems
 
 Four connected floors, 76 object types, eight themes, five normalized adventurer builds, configurable monsters/bosses, environmental interactions, event/condition/action logic, NPC quests and resources, eight templates, and optional collect-and-exit objectives. The editor includes transactional history, wiring-preserving duplication, patrol-aware transforms, and layers.
 
-Community features include accounts, discovery, profiles, follows/favorites, QR/share codes, friend challenges, leaderboards, progression, earned cosmetics, rotating challenges, moderation, cloud drafts, shared revision-checked workshops, branching campaigns, and guild world collections. Online results and rewards are server verified.
+Community features include accounts, discovery, profiles, follows/favorites, QR/share codes, friend challenges, leaderboards, progression, earned cosmetics, rotating challenges, moderation, cloud drafts, shared revision-checked workshops, branching campaigns, and guild world collections. Online results and rewards are server verified. Profile preferences can favor difficulty and session length, or adapt to distinct adventures.
 
 ## Verify and package
 
