@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite",
     "server": "tsx server/main.ts",
     "server:dev": "tsx watch server/main.ts",
     "admin": "tsx server/admin.ts",
