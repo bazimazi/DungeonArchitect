@@ -6,13 +6,21 @@ import { audio } from "./engine/audio";
 import { Rng, hashString } from "./engine/math";
 import {
   BIOMES,
+  BIOME_IDS,
+  ARCHITECTS,
   HEROES,
+  HERO_COUNTER,
   NIGHTS,
   PIECES,
   POWERS,
+  RULES_VERSION,
   TICK,
   T,
-  type Biome,
+  isChampion,
+  roman,
+  type ArchitectId,
+  type BiomeId,
+  type FeatDef,
   type HeroClass,
   type PieceId,
   type PowerId,
@@ -31,6 +39,8 @@ import {
   type Layout,
 } from "./game/grid";
 import {
+  award,
+  awardStats,
   defaultProfile,
   loadProfile,
   loadRun,
@@ -49,18 +59,26 @@ import {
   canDig,
   canFill,
   canPlace,
+  capacityFor,
+  championFor,
   dawnIncome,
   dig,
   digCost,
   draftFor,
   fill,
+  interestFor,
+  isChampionNight,
   isEliteNight,
   newRun,
   partyFor,
   pieceCost,
   place,
   raidMods,
+  reinforce,
+  reinforceCost,
   renownFor,
+  rerollCost,
+  runTitle,
   sell,
   sellValue,
   starsFor,
@@ -82,6 +100,7 @@ import {
   challengeResult,
   codexScreen,
   draftScreen,
+  featsScreen,
   gameOverScreen,
   messageScreen,
   namePrompt,
@@ -100,6 +119,8 @@ interface Snapshot {
   layout: Layout;
   gold: number;
   fresh: number[];
+  tiers: RunState["tiers"];
+  dug: number;
 }
 
 const SPEEDS = [1, 2, 3];
@@ -124,9 +145,15 @@ const SOURCE_NAMES: Record<string, string> = {
   imp: "Fire Imp",
   ghost: "Wailing Ghost",
   rockfall: "Rockfall",
+  chill: "Grave Chill",
   risen: "Risen dead",
   minislime: "Slimelings",
+  pylon: "Storm Pylon",
+  spider: "Cave Spider",
+  golem: "Stone Golem",
+  thorns: "Thorned Hides",
 };
+const ALL_PIECES = Object.keys(PIECES) as PieceId[];
 
 export class Game {
   profile: Profile;
@@ -172,6 +199,9 @@ export class Game {
   private pinch: { d: number; cx: number; cy: number } | null = null;
   private gesture = false; // a multi-finger gesture happened; suppress taps until all fingers lift
   private hoardBefore = 0;
+  private goldBefore = 0;
+  /** Feats earned since the last results screen. */
+  private pendingFeats: FeatDef[] = [];
   private demo: {
     layout: Layout;
     raid: Raid;
@@ -318,6 +348,8 @@ export class Game {
   showTitle() {
     this.flushSave();
     this.layer.closeAll();
+    this.paused = false;
+    document.body.classList.remove("paused");
     // Workshop and challenges borrow `run`; the campaign lives in storage.
     this.run = loadRun();
     this.kind = "title";
@@ -346,16 +378,18 @@ export class Game {
             codexScreen(this.profile, () => this.layer.close()),
             { modal: true, onDismiss: () => this.layer.close() },
           ),
+        onFeats: () =>
+          this.layer.open(
+            featsScreen(this.profile, () => this.layer.close()),
+            { modal: true, onDismiss: () => this.layer.close() },
+          ),
         onSettings: () => this.openSettings(),
       }),
     );
   }
   private resetDemo() {
     const seed = Math.floor(Math.random() * 1e9);
-    const l = generateLayout(
-      seed,
-      (["crypt", "grotto", "forge"] as Biome["id"][])[seed % 3],
-    );
+    const l = generateLayout(seed, BIOME_IDS[seed % BIOME_IDS.length]);
     const f = distanceField(l, l.hoard.x, l.hoard.y);
     const route = pathTo(l, f, l.entrance.x, l.entrance.y).slice(2, -2);
     const rng = new Rng(seed);
@@ -369,6 +403,8 @@ export class Game {
       "frost",
       "slime",
       "keg",
+      "pylon",
+      "spider",
     ];
     for (let i = 0; i < 7; i++) {
       const spot = route[Math.floor(((i + 0.5) / 7) * route.length)];
@@ -385,7 +421,15 @@ export class Game {
     const party: PartyMember[] = [
       { cls: "knight" },
       {
-        cls: rng.pick(["rogue", "mage", "ranger", "berserker"] as HeroClass[]),
+        cls: rng.pick([
+          "rogue",
+          "mage",
+          "ranger",
+          "berserker",
+          "bard",
+          "windcaller",
+          "inquisitor",
+        ] as HeroClass[]),
       },
       { cls: "cleric" },
     ];
@@ -405,10 +449,9 @@ export class Game {
       },
     });
     this.demo = { layout: l, raid, seed, wait: 0 };
-    this.demoBiome =
-      BIOMES[(["crypt", "grotto", "forge"] as Biome["id"][])[seed % 3]].id;
+    this.demoBiome = BIOME_IDS[seed % BIOME_IDS.length];
   }
-  private demoBiome: Biome["id"] = "crypt";
+  private demoBiome: BiomeId = "crypt";
 
   private openSettings() {
     this.layer.open(
@@ -433,11 +476,43 @@ export class Game {
     );
   }
 
-  private openSetup() {
+  private openSetup(confirmed = false) {
+    // Never silently replace a run: finished runs show their legend first,
+    // unfinished ones ask before being abandoned.
+    if (this.run && !confirmed) {
+      if (this.run.victory !== null) {
+        this.continueRun();
+        return;
+      }
+      this.layer.open(
+        messageScreen(
+          "Abandon your run?",
+          this.run.daily
+            ? "Starting a new descent ends today's daily attempt."
+            : `Your dungeon at ${runTitle(this.run)} will be lost. Renown is paid for the nights you survived.`,
+          [
+            ["Keep it", () => this.layer.close(), "btn ghost"],
+            [
+              "Abandon",
+              () => {
+                this.abandonRun(() => {
+                  // Rebuild the title (its Continue button is stale) under setup.
+                  this.showTitle();
+                  this.openSetup(true);
+                });
+              },
+              "btn danger",
+            ],
+          ],
+        ),
+        { modal: true },
+      );
+      return;
+    }
     const go = (o: {
-      biome: Biome["id"];
-      architect: "mason" | "trickster" | "lich";
-      infamy: number;
+      biome: BiomeId;
+      architect: ArchitectId;
+      depth: number;
     }) => {
       const seed = Math.floor(Math.random() * 2 ** 31);
       this.run = newRun({ seed, ...o, powers: unlockedPowers(this.profile) });
@@ -447,16 +522,36 @@ export class Game {
       this.layer.closeAll();
       this.enterBuild("run");
     };
-    // First run skips the setup screen entirely.
-    if (this.profile.runs === 0) {
+    // The very first descent skips the setup screen entirely.
+    if (this.profile.runs === 0 && this.profile.maxDepth <= 1) {
       if (this.closeTitle) this.closeTitle();
-      go({ biome: "crypt", architect: "mason", infamy: 0 });
+      go({ biome: "crypt", architect: "mason", depth: 1 });
       return;
     }
     this.layer.open(
       setupScreen(this.profile, go, () => this.layer.close()),
       { modal: true, onDismiss: () => this.layer.close() },
     );
+  }
+  /** Settle an unfinished run as a loss (renown for nights survived). */
+  private abandonRun(then: () => void) {
+    const run = this.run;
+    if (!run) return then();
+    run.victory = false;
+    this.settleRun(run);
+    this.toastFeats();
+    this.run = null;
+    saveRun(null);
+    then();
+  }
+  /** Feats earned outside a results screen are announced as toasts. */
+  private toastFeats() {
+    const feats = this.takeFeats();
+    for (const f of feats)
+      this.hud.toast(`Feat: ${f.name} · +${f.renown} renown`, "gold");
+    for (const u of this.takeUnlocks(feats))
+      this.hud.toast(`Unlocked: ${u}`, "gold");
+    saveProfile(this.profile);
   }
   private continueRun() {
     if (!this.run) return;
@@ -496,26 +591,28 @@ export class Game {
       return;
     }
     const seed = hashString(`daily-${key}`);
-    const biomes: Biome["id"][] = ["crypt", "grotto", "forge"];
-    const architects = ["mason", "trickster", "lich"] as const;
     const start = () => {
-      this.run = newRun({
-        seed,
-        biome: biomes[seed % 3],
-        architect: architects[(seed >>> 3) % 3],
-        infamy: 1,
-        daily: key,
-        powers: ["rockfall", "shriek"],
-      });
-      saveRun(this.run);
       this.layer.closeAll();
-      this.enterBuild("run");
+      this.abandonRun(() => {
+        this.run = newRun({
+          seed,
+          biome: BIOME_IDS[seed % BIOME_IDS.length],
+          architect: ARCHITECTS[(seed >>> 3) % ARCHITECTS.length].id,
+          depth: 2 + ((seed >>> 7) % 3),
+          daily: key,
+          powers: ["rockfall", "shriek", "chill"],
+        });
+        saveRun(this.run);
+        this.enterBuild("run");
+      });
     };
-    if (this.run && !this.run.daily) {
+    if (this.run && this.run.victory === null) {
       this.layer.open(
         messageScreen(
           "Abandon your run?",
-          "Starting the daily replaces your current descent.",
+          this.run.daily
+            ? "An unfinished daily from another day will be closed."
+            : "Starting the daily replaces your current descent. Renown is paid for the nights you survived.",
           [
             ["Cancel", () => this.layer.close(), "btn ghost"],
             ["Start daily", start, "btn primary"],
@@ -524,6 +621,13 @@ export class Game {
         { modal: true },
       );
       return;
+    }
+    if (this.run && this.run.victory !== null) {
+      // A finished run still waiting for its legend screen: pay it out first.
+      this.settleRun(this.run);
+      this.toastFeats();
+      this.run = null;
+      saveRun(null);
     }
     start();
   }
@@ -537,23 +641,24 @@ export class Game {
             .map((r) => ["▫️", "🟫", "🟨", "🟩"][r.stars])
             .join("")
         : "";
-    return `Dungeon Architect · Daily ${key}\n${d.won ? "Survived all 10 nights" : `Fell on night ${d.nights}`} · ${d.stars}★ · hoard ${d.hoard}\n${strip}\n${location.href.split("#")[0]}`;
+    return `Dungeon Architect · Daily ${key}\n${d.won ? `Survived all ${NIGHTS} nights` : `Fell on night ${d.nights}`} · ${d.stars}★ · hoard ${d.hoard}\n${strip}\n${location.href.split("#")[0]}`;
   }
 
   // ---------------- workshop ----------------
   private openWorkshop() {
-    const saved = loadWorkshop<RunState>();
-    if (saved && saved.v === 1) this.run = saved;
+    const saved = loadWorkshop();
+    if (saved) this.run = saved;
     else {
       this.run = newRun({
         seed: Math.floor(Math.random() * 1e9),
         biome: "crypt",
         architect: "mason",
-        infamy: 0,
+        depth: 1,
         powers: unlockedPowers(this.profile),
       });
       this.run.layout.objects = [];
     }
+    this.run.workshop = true;
     this.run.gold = 1e9;
     this.run.owned = [...new Set([...unlockedPieces(this.profile)])];
     this.run.powers = unlockedPowers(this.profile);
@@ -563,7 +668,10 @@ export class Game {
 
   // ---------------- challenge ----------------
   private openChallenge(shared: SharedDungeon, code: string) {
+    this.flushSave();
     this.layer.closeAll();
+    this.paused = false;
+    document.body.classList.remove("paused");
     this.kind = "challenge";
     this.phase = "after";
     this.challenge = { shared, code, last: this.challenge?.last ?? [] };
@@ -581,6 +689,9 @@ export class Game {
       "ranger",
       "dwarf",
       "berserker",
+      "bard",
+      "windcaller",
+      "inquisitor",
     ];
     this.layer.open(
       partyPicker({
@@ -644,23 +755,29 @@ export class Game {
         NIGHTS,
         run.history.map((r) => r.stars),
       );
+      this.hud.setMutators(run.mutators);
+      const champ = isChampionNight(run.night);
       this.hud.setParty(
         this.party,
-        run.night === NIGHTS
-          ? "Final night"
-          : isEliteNight(run, run.night)
-            ? "Elite raid"
-            : "Tonight",
+        champ
+          ? `${HEROES[championFor(run, run.night)].name}`
+          : run.night > NIGHTS
+            ? "The abyss stirs"
+            : isEliteNight(run, run.night)
+              ? "Elite raid"
+              : "Tonight",
       );
-      this.hud.setStartLabel(
-        run.night === NIGHTS ? "Face the Champion" : "Begin Night",
-      );
+      this.hud.setStartLabel(champ ? "Face the Champion" : "Begin Night");
       const debut = this.party.find((p) => !this.profile.seen.includes(p.cls));
       if (debut && this.profile.tutorial >= 99) {
         setTimeout(() => this.heroInfo(debut.cls, true), 500);
       }
     } else {
-      this.party = partyFor({ seed: 7, infamy: 0 }, this.workshopNight);
+      this.hud.setMutators([]);
+      this.party = partyFor(
+        { seed: 7, depth: 1, mutators: [], boss: "paladin" },
+        this.workshopNight,
+      );
       this.hud.setNightLabel("∞");
       this.hud.setTestNight(this.workshopNight);
       this.hud.setParty(this.party, `Test vs night ${this.workshopNight}`);
@@ -674,12 +791,14 @@ export class Game {
     const run = this.run;
     if (!run) return;
     const infinite = this.kind === "workshop";
+    const full = run.layout.objects.length >= capacityFor(run);
     this.hud.setGold(run.gold, infinite);
     this.hud.setHoard(run.hoard, run.hoardMax);
+    this.hud.setCapacity(run.layout.objects.length, capacityFor(run));
     const items = run.owned.map((id) => ({
       id,
       cost: pieceCost(run, id),
-      affordable: infinite || run.gold >= pieceCost(run, id),
+      affordable: infinite || (!full && run.gold >= pieceCost(run, id)),
       tier: run.tiers[id] ?? 1,
       fresh: false,
     }));
@@ -720,7 +839,7 @@ export class Game {
         h(
           "div",
           {},
-          h("b", {}, `${def.name}${tier > 1 ? " " + "I".repeat(tier) : ""}`),
+          h("b", {}, `${def.name}${tier > 1 ? " " + roman(tier) : ""}`),
           h(
             "small",
             {},
@@ -732,6 +851,7 @@ export class Game {
       ),
       h("p", {}, def.rule),
       def.combo ? h("p", { class: "combo-hint" }, def.combo) : "",
+      this.reinforceButton(id),
       h(
         "p",
         { class: "hint" },
@@ -742,6 +862,61 @@ export class Game {
           : "Tap a floor tile to place.",
       ),
     ]);
+  }
+  /** Spend gold to raise a blueprint's tier (every copy gets stronger). */
+  private reinforceButton(id: PieceId): HTMLElement | "" {
+    const run = this.run;
+    if (!run || this.kind !== "run" || id === "lure") return "";
+    const cost = reinforceCost(run, id);
+    const tier = run.tiers[id] ?? 1;
+    if (cost === null)
+      return h("p", { class: "hint" }, `Fully reinforced (${roman(tier)}).`);
+    return h(
+      "button",
+      {
+        class: `btn small reinforce${run.gold < cost ? " poor" : ""}`,
+        onclick: () => this.doReinforce(id),
+      },
+      icon("up", "ic tiny"),
+      ` Reinforce to ${roman(tier + 1)} · `,
+      icon("coin", "ic tiny"),
+      ` ${cost}`,
+    );
+  }
+  private doReinforce(id: PieceId) {
+    const run = this.run;
+    if (!run) return;
+    const cost = reinforceCost(run, id);
+    if (cost === null) return;
+    if (run.gold < cost) {
+      this.deny(`Reinforcing costs ${cost} gold`);
+      return;
+    }
+    this.snapshot();
+    reinforce(run, id);
+    audio.play("unlock", { pitch: 1.2 });
+    this.hud.toast(
+      `${PIECES[id].name} reinforced to ${roman(run.tiers[id] ?? 1)}: +40% power`,
+      "good",
+    );
+    for (const o of run.layout.objects)
+      if (o.kind === id) {
+        this.renderer.pop(o.id);
+        this.renderer.fx.burst(o.x + 0.5, o.y + 0.4, 8, {
+          color: "#ffd166",
+          kind: "star",
+          size: 0.06,
+          speed: 1,
+          up: 1.6,
+          max: 0.6,
+          add: true,
+        });
+      }
+    this.save();
+    this.refreshBuild();
+    const sel = this.selected;
+    if (sel !== null) this.select(sel, true);
+    else this.showPieceInfo(id);
   }
   private showDigInfo() {
     const c = digCost(this.run!);
@@ -776,6 +951,8 @@ export class Game {
       layout: cloneLayout(run.layout),
       gold: run.gold,
       fresh: [...run.fresh],
+      tiers: { ...run.tiers },
+      dug: run.dug,
     });
     if (this.undo.length > 60) this.undo.shift();
   }
@@ -785,6 +962,8 @@ export class Game {
     this.run.layout = s.layout;
     this.run.gold = s.gold;
     this.run.fresh = s.fresh;
+    this.run.tiers = s.tiers;
+    this.run.dug = s.dug;
     this.selected = null;
     audio.play("sell");
     this.save();
@@ -799,6 +978,7 @@ export class Game {
       blocked: "Heroes need a route to the hoard",
       protected: "That spot can't change",
       floor: "Already open floor",
+      full: `Your dungeon holds ${this.run ? capacityFor(this.run) : 0} pieces tonight. Sell one, or reinforce instead.`,
       none: "",
     }[e];
   }
@@ -814,6 +994,7 @@ export class Game {
         return;
       }
       this.deny(this.errorText(err), x, y);
+      if (err === "full") this.hud.pulseCapacity();
       return;
     }
     this.snapshot();
@@ -980,11 +1161,19 @@ export class Game {
           h(
             "div",
             {},
-            h("b", {}, def.name),
+            h(
+              "b",
+              {},
+              def.name,
+              (run.tiers[o.kind] ?? 1) > 1
+                ? ` ${roman(run.tiers[o.kind] ?? 1)}`
+                : "",
+            ),
             h("small", {}, def.kind === "trap" ? "Trap" : "Monster"),
           ),
         ),
         h("p", {}, def.rule),
+        this.reinforceButton(o.kind),
       ],
       actions,
     );
@@ -1028,6 +1217,8 @@ export class Game {
   private startNight() {
     if (this.phase !== "build" || !this.run) return;
     const run = this.run;
+    // A boon must be chosen first (e.g. mid-reroll).
+    if (this.kind === "run" && (run.phase === "draft" || run.draft)) return;
     if (!hasRoute(run.layout)) {
       this.deny("Heroes need a route from the stairs to your hoard.");
       return;
@@ -1057,6 +1248,7 @@ export class Game {
       if (!this.profile.seen.includes(p.cls)) this.profile.seen.push(p.cls);
     saveProfile(this.profile);
     this.hoardBefore = run.hoard;
+    this.goldBefore = run.gold;
     this.beginRaid(
       {
         layout: run.layout,
@@ -1073,11 +1265,12 @@ export class Game {
 
   private beginRaid(
     setup: ConstructorParameters<typeof Raid>[0],
-    biome: Biome["id"],
+    biome: BiomeId,
   ) {
     this.raid = new Raid(setup);
     this.raidBiome = biome;
     this.phase = "raid";
+    document.body.classList.remove("paused");
     this.tool = null;
     this.selected = null;
     this.power = null;
@@ -1094,10 +1287,8 @@ export class Game {
     );
     this.hud.setSpeed(SPEEDS[this.speedIdx], false);
     const night = this.kind === "run" ? this.run!.night : 0;
-    this.hud.setParty(
-      this.party,
-      night === NIGHTS ? "The Champion" : "Raiders",
-    );
+    const champNight = this.kind === "run" && isChampionNight(night);
+    this.hud.setParty(this.party, champNight ? "The Champion" : "Raiders");
     this.hud.bindRoster(this.raid);
     if (this.kind !== "run") this.hud.setGold(0, this.kind === "workshop");
     this.hud.setHoard(this.raid.hoard, this.raid.hoardMax);
@@ -1109,14 +1300,16 @@ export class Game {
       this.kind === "run"
         ? night === NIGHTS
           ? "The Final Night"
-          : `Night ${night}`
+          : night > NIGHTS
+            ? `Abyss · Night ${night}`
+            : `Night ${night}`
         : this.kind === "challenge"
           ? "The Raid"
           : "Test Raid";
     const sub =
       this.kind === "run"
-        ? night === NIGHTS
-          ? "Sir Aldric descends"
+        ? champNight
+          ? `${HEROES[championFor(this.run!, night)].name} descends`
           : isEliteNight(this.run!, night)
             ? "An elite hero leads them"
             : `${this.party.length} hero${this.party.length > 1 ? "es" : ""} descend`
@@ -1124,11 +1317,11 @@ export class Game {
     this.hud.banner(title, sub, "night");
     this.updatePowersHud();
   }
-  private raidBiome: Biome["id"] = "crypt";
+  private raidBiome: BiomeId = "crypt";
 
   private availablePowers(): PowerId[] {
     return this.kind === "run"
-      ? this.run!.powers
+      ? (this.run?.powers ?? [])
       : this.kind === "workshop"
         ? unlockedPowers(this.profile)
         : [];
@@ -1146,11 +1339,7 @@ export class Game {
     } else {
       this.power = p;
       audio.play("click");
-      this.hud.toast(
-        p === "rockfall"
-          ? "Tap where the ceiling should fall"
-          : "Tap near heroes to terrify them",
-      );
+      this.hud.toast(POWERS[p].hint);
     }
     this.updatePowersHud();
   }
@@ -1165,13 +1354,14 @@ export class Game {
     this.power = null;
     this.updatePowersHud();
     if (p === "shriek") audio.play("shriek");
+    if (p === "chill") audio.play("chill");
     this.tutorialStep("cast");
   }
   private updatePowersHud() {
     if (!this.raid) return;
     const powers = this.availablePowers();
     this.hud.setPowers(powers, this.raid.dread, this.powerCd, this.power);
-    this.hud.setDread(this.raid.dread);
+    this.hud.setDread(this.raid.dread, this.raid.dreadMax);
   }
   private cycleSpeed() {
     this.speedIdx = (this.speedIdx + 1) % SPEEDS.length;
@@ -1246,11 +1436,13 @@ export class Game {
       return;
     }
     const run = this.run!;
+    const p = this.profile;
     const stolen = Math.max(0, this.hoardBefore - raid.hoard);
     run.hoard = raid.hoard;
     const stars = starsFor(result, stolen);
     const income = dawnIncome(run, stars);
-    run.gold += result.gold + income;
+    const interest = interestFor(run, this.goldBefore);
+    run.gold += result.gold + income + interest;
     run.history.push({
       night: run.night,
       stars,
@@ -1263,33 +1455,47 @@ export class Game {
     // Tunnels dug by dwarves remain.
     run.layout.tiles = raid.layout.tiles.slice();
     run.fresh = [];
-    this.profile.kills += result.killed;
-    this.profile.bestCombo = Math.max(this.profile.bestCombo, result.bestCombo);
+    p.kills += result.killed;
+    p.bestCombo = Math.max(p.bestCombo, result.bestCombo);
+    p.stats.kills += result.killed;
+    p.stats.fireKills += result.fireKills;
+    p.stats.falls += result.falls;
+    p.stats.powerKills += result.powerKills;
+    this.nightFeats(run, result, stars, stolen);
     const deadliest = Object.entries(result.kills).sort(
       (a, b) => b[1] - a[1],
     )[0];
-    const final = run.hoard <= 0 || run.night >= NIGHTS;
-    audio.play(stars >= 2 ? "dawn" : stars === 0 ? "defeat" : "dawn");
     const night = run.night;
+    const descentWon = !run.endless && night >= NIGHTS && run.hoard > 0;
+    const final = run.hoard <= 0 || descentWon;
+    audio.play(stars === 0 ? "defeat" : "dawn");
+    if (run.endless && run.hoard > 0)
+      p.bestAbyss = Math.max(p.bestAbyss, night);
     if (run.hoard <= 0) run.victory = false;
-    else if (run.night >= NIGHTS) run.victory = true;
+    else if (descentWon) run.victory = true;
     else {
       // Advance before saving so a reload can never replay a finished night.
       run.night++;
-      run.draft = draftFor(run, unlockedPieces(this.profile));
+      run.draft = draftFor(run, this.draftPool(run));
       run.phase = "draft";
     }
     saveRun(run);
-    saveProfile(this.profile);
+    saveProfile(p);
+    const feats = this.takeFeats();
+    const unlocked = this.takeUnlocks(feats);
+    saveProfile(p);
     this.layer.open(
       resultsScreen({
+        unlocked,
         night,
         result,
         stars,
         stolen,
         income,
+        interest,
         heroes: this.party.length,
         final,
+        feats,
         deadliest: deadliest
           ? `${SOURCE_NAMES[deadliest[0]] ?? deadliest[0]} (${deadliest[1]})`
           : null,
@@ -1303,98 +1509,267 @@ export class Game {
         },
       }),
     );
+    if (feats.length) setTimeout(() => audio.play("feat"), 1300);
     this.hud.setGold(run.gold);
+  }
+
+  /** Daily runs draft from every piece so everyone gets the same offers. */
+  private draftPool(run: RunState) {
+    return run.daily ? ALL_PIECES : unlockedPieces(this.profile);
+  }
+
+  private earn(id: string) {
+    const f = award(this.profile, id);
+    if (f) this.pendingFeats.push(f);
+  }
+  private takeFeats() {
+    this.pendingFeats.push(...awardStats(this.profile));
+    const out = this.pendingFeats;
+    this.pendingFeats = [];
+    return out;
+  }
+  /** Unlocks reached by feat renown during a run (announced right away). */
+  private takeUnlocks(feats: FeatDef[]) {
+    const gained = feats.reduce((a, f) => a + f.renown, 0);
+    if (!gained) return [];
+    return unlocksBetween(
+      this.profile.renown - gained,
+      this.profile.renown,
+    ).map((u) => u.label);
+  }
+  /** Feats that can be earned by a single night. */
+  private nightFeats(
+    run: RunState,
+    result: ReturnType<Raid["result"]>,
+    stars: number,
+    stolen: number,
+  ) {
+    if (result.killed > 0) this.earn("firstBlood");
+    if (stars === 3) this.earn("flawless");
+    if (result.bestCombo >= 5) this.earn("combo5");
+    if (result.bestCombo >= 8) this.earn("combo8");
+    for (const c of result.champions)
+      this.earn(
+        c === "paladin" ? "aldric" : c === "archmage" ? "veyla" : "grukk",
+      );
+    if (run.gold >= 400) this.earn("hoarder");
+    if (
+      run.night >= 6 &&
+      stolen === 0 &&
+      run.hoard > 0 &&
+      run.layout.objects.length <= 6
+    )
+      this.earn("minimal");
+    if (run.owned.length >= 14) this.earn("collector");
+    if (run.relics.length >= 6) this.earn("relics6");
+    if (Object.values(run.tiers).some((t) => (t ?? 1) >= 3)) this.earn("tier3");
+    if (run.endless && run.hoard > 0) {
+      if (run.night >= 15) this.earn("abyss15");
+      if (run.night >= 20) this.earn("abyss20");
+      if (run.night >= 30) this.earn("abyss30");
+    }
   }
 
   private openDraft() {
     const run = this.run!;
     if (!run.draft) return;
     this.hud.setMode("hidden");
+    const cost = rerollCost(run);
     this.layer.open(
-      draftScreen(run.draft, run, (c) => {
-        if (c) {
-          applyCard(run, c);
-          if (c.type === "piece")
-            this.hud.toast(
-              `${PIECES[c.id].name} added to your blueprints`,
-              "good",
-            );
-        } else run.gold += 15;
-        run.draft = null;
-        run.phase = "build";
-        saveRun(run);
-        this.layer.closeAll();
-        this.hud.setMode("build", "run");
-        this.refreshBuild();
-        audio.play("dawn");
-        this.tutorialStep();
-        const debut = this.party.find(
-          (p) => !this.profile.seen.includes(p.cls),
-        );
-        if (debut && this.profile.tutorial >= 99)
-          setTimeout(() => this.heroInfo(debut.cls, true), 300);
-      }),
+      draftScreen(
+        run.draft,
+        run,
+        (c) => {
+          if (c) {
+            applyCard(run, c);
+            if (c.type === "piece")
+              this.hud.toast(
+                `${PIECES[c.id].name} added to your blueprints`,
+                "good",
+              );
+            if (c.type === "tier" && (run.tiers[c.id] ?? 1) >= 3)
+              this.earn("tier3");
+            if (c.type === "relic" && run.relics.length >= 6)
+              this.earn("relics6");
+            if (c.type === "piece" && run.owned.length >= 14)
+              this.earn("collector");
+          } else run.gold += 15;
+          run.draft = null;
+          run.phase = "build";
+          saveRun(run);
+          this.layer.closeAll();
+          this.hud.setMode("build", "run");
+          this.refreshBuild();
+          audio.play("dawn");
+          const late = this.takeFeats();
+          for (const f of late) {
+            this.hud.toast(`Feat: ${f.name} · +${f.renown} renown`, "gold");
+            audio.play("feat");
+          }
+          for (const u of this.takeUnlocks(late))
+            this.hud.toast(`Unlocked: ${u}`, "gold");
+          saveProfile(this.profile);
+          this.tutorialStep();
+          const debut = this.party.find(
+            (q) => !this.profile.seen.includes(q.cls),
+          );
+          if (debut && this.profile.tutorial >= 99)
+            setTimeout(() => this.heroInfo(debut.cls, true), 300);
+        },
+        {
+          cost,
+          onReroll: () => {
+            run.gold -= cost;
+            run.rerolls++;
+            run.draft = draftFor(run, this.draftPool(run));
+            saveRun(run);
+            audio.play("card");
+            this.layer.closeAll();
+            this.hud.setGold(run.gold);
+            this.openDraft();
+          },
+        },
+      ),
       { modal: true },
     );
   }
 
+  /**
+   * Pay out renown and records for a finished (or abandoned) run, once.
+   * Returns what changed so the legend screen can show it.
+   */
+  private settleRun(run: RunState) {
+    const p = this.profile;
+    const before = p.renown;
+    const out = {
+      renown: 0,
+      unlocked: [] as string[],
+      newDepth: null as number | null,
+      dailyText: null as string | null,
+    };
+    if (run.settled) {
+      out.renown = run.renownPaid;
+      return out;
+    }
+    const earned = Math.max(0, renownFor(run) - run.renownPaid);
+    p.renown += earned;
+    run.renownPaid += earned;
+    out.renown = earned;
+    const descentWon = run.victory === true && !run.endless;
+    if (descentWon) {
+      p.wins++;
+      if (!run.daily) {
+        p.bestDepth = Math.max(p.bestDepth, run.depth);
+        if (run.depth >= p.maxDepth) {
+          p.maxDepth = run.depth + 1;
+          out.newDepth = p.maxDepth;
+        }
+      }
+      if (!p.archWins.includes(run.architect)) p.archWins.push(run.architect);
+      if (run.depth >= 3) this.earn("depth3");
+      if (run.depth >= 6) this.earn("depth6");
+      if (run.depth >= 10) this.earn("depth10");
+      if (run.depth >= 15) this.earn("depth15");
+      if (run.history.every((r) => r.stolen === 0)) this.earn("perfect");
+      if (run.history.every((r) => r.stars === 3)) this.earn("allStars");
+      if (ARCHITECTS.every((a) => p.archWins.includes(a.id)))
+        this.earn("allArchitects");
+      if (!run.dug) this.earn("noDig");
+    }
+    if (run.daily && !p.daily[run.daily]) {
+      const descent = run.history.filter((r) => r.night <= NIGHTS);
+      const d = {
+        stars: descent.reduce((a, r) => a + r.stars, 0),
+        hoard: Math.max(0, run.hoard),
+        nights: descent.length,
+        won: run.victory === true || run.endless,
+      };
+      p.daily[run.daily] = d;
+      p.stats.dailies++;
+      out.dailyText = this.dailyText(run.daily, d);
+    }
+    run.settled = true;
+    out.unlocked = unlocksBetween(before, p.renown).map((u) => u.label);
+    saveProfile(p);
+    return out;
+  }
+
   private finishRun() {
     const run = this.run!;
-    const renown = renownFor(run);
-    const before = this.profile.renown;
-    this.profile.renown += renown;
-    if (run.victory) {
-      this.profile.wins++;
-      this.profile.maxInfamy = Math.min(
-        7,
-        Math.max(this.profile.maxInfamy, run.infamy + 1),
-      );
-    }
-    const unlocked = unlocksBetween(before, this.profile.renown).map(
-      (u) => u.label,
-    );
-    if (
-      run.victory &&
-      run.infamy + 1 > 0 &&
-      this.profile.maxInfamy === run.infamy + 1
-    )
-      unlocked.push(`Infamy ${run.infamy + 1}`);
-    let dailyText: string | null = null;
-    if (run.daily) {
-      const d = {
-        stars: run.history.reduce((a, r) => a + r.stars, 0),
-        hoard: Math.max(0, run.hoard),
-        nights: run.history.length,
-        won: !!run.victory,
-      };
-      this.profile.daily[run.daily] = d;
-      dailyText = this.dailyText(run.daily, d);
-    }
+    const firstTime = !run.settled;
+    const settled = this.settleRun(run);
+    const feats = this.takeFeats();
+    // Feats may have pushed renown over more unlocks.
+    if (feats.length)
+      settled.unlocked = unlocksBetween(
+        this.profile.renown -
+          settled.renown -
+          feats.reduce((a, f) => a + f.renown, 0),
+        this.profile.renown,
+      ).map((u) => u.label);
+    let totalRenown = settled.renown + feats.reduce((a, f) => a + f.renown, 0);
+    // A reload shows the same payout as the first time this screen appeared.
+    if (firstTime) run.lastPaid = totalRenown;
+    else totalRenown = run.lastPaid ?? totalRenown;
     saveProfile(this.profile);
-    audio.play(run.victory ? "victory" : "defeat");
-    if (run.victory) this.coinRain(run.layout);
-    if (unlocked.length) setTimeout(() => audio.play("unlock"), 900);
-    const finished = run;
-    this.run = null;
-    saveRun(null);
+    // Keep the finished run saved until the player leaves the legend screen,
+    // so a reload returns here without paying out twice.
+    saveRun(run);
+    if (firstTime) {
+      audio.play(run.victory || run.endless ? "victory" : "defeat");
+      if (run.victory) this.coinRain(run.layout);
+      if (settled.unlocked.length || feats.length)
+        setTimeout(() => audio.play("unlock"), 900);
+    }
+    const leave = (then: () => void) => {
+      this.run = null;
+      saveRun(null);
+      then();
+    };
+    const canDelve = run.victory === true && !run.endless && !run.daily;
     this.hud.setMode("hidden");
     this.layer.open(
       gameOverScreen({
-        run: finished,
-        renown,
-        unlocked,
-        dailyText,
-        onMenu: () => this.showTitle(),
-        onAgain: () => {
-          this.showTitle();
-          this.openSetup();
+        run,
+        renown: totalRenown,
+        unlocked: settled.unlocked,
+        feats,
+        newDepth: settled.newDepth,
+        dailyText:
+          settled.dailyText ??
+          (run.daily && this.profile.daily[run.daily]
+            ? this.dailyText(run.daily, this.profile.daily[run.daily])
+            : null),
+        onMenu: () => leave(() => this.showTitle()),
+        onAgain: () =>
+          leave(() => {
+            this.showTitle();
+            this.openSetup();
+          }),
+        onShare: () => {
+          const d = run.daily && this.profile.daily[run.daily];
+          if (run.daily && d) this.copyText(this.dailyText(run.daily, d));
+          else this.shareLayout(run.layout, run.biome, run.tiers);
         },
-        onShare: () =>
-          dailyText
-            ? this.copyText(dailyText)
-            : this.shareLayout(finished.layout, finished.biome, finished.tiers),
+        onAbyss: canDelve ? () => this.delve(run) : null,
       }),
     );
+  }
+
+  /** Continue a won descent into the endless abyss. */
+  private delve(run: RunState) {
+    run.endless = true;
+    run.victory = null;
+    run.settled = false;
+    run.night = NIGHTS + 1;
+    run.draft = draftFor(run, this.draftPool(run));
+    run.phase = "draft";
+    saveRun(run);
+    audio.play("nightfall");
+    this.layer.closeAll();
+    this.enterBuild("run");
+    this.hud.banner("The Abyss", "No more dawns. Only deeper nights.", "night");
+    this.openDraft();
   }
 
   private coinRain(l: Layout) {
@@ -1425,7 +1800,7 @@ export class Game {
   }
   private shareLayout(
     layout: Layout,
-    biome: Biome["id"],
+    biome: BiomeId,
     tiers: RunState["tiers"],
   ) {
     const make = (name: string) => {
@@ -1442,7 +1817,7 @@ export class Game {
         layout,
         tiers,
         budget,
-        rules: 1,
+        rules: RULES_VERSION,
       });
       const url = shareUrl(code);
       this.layer.close();
@@ -1514,6 +1889,11 @@ export class Game {
                         "Abandon",
                         () => {
                           this.layer.closeAll();
+                          // Leave the raid cleanly before settling the run.
+                          this.raid = null;
+                          this.phase = "after";
+                          this.paused = false;
+                          document.body.classList.remove("paused");
                           if (this.run) {
                             this.run.victory = false;
                             this.finishRun();
@@ -1551,11 +1931,18 @@ export class Game {
           h(
             "div",
             {},
-            h("b", {}, debut ? `New foe: ${d.name}` : d.name),
+            h(
+              "b",
+              {},
+              debut
+                ? `${isChampion(cls) ? "Champion" : "New foe"}: ${d.name}`
+                : d.name,
+            ),
             h("small", {}, `Health ${d.hp} · Bounty ${d.bounty}`),
           ),
         ),
         h("p", {}, d.rule),
+        h("p", { class: "combo-hint" }, `Counter: ${HERO_COUNTER[cls]}`),
       ],
       [],
       debut ? 6000 : 0,
@@ -1977,9 +2364,9 @@ export class Game {
           );
           audio.play("unlock", { pitch: 0.8 + e.combo * 0.1 });
         }
-        if (e.cls === "paladin") {
+        if (isChampion(e.cls)) {
           r.shake(0.9);
-          this.hud.banner("The Champion Falls", "", "gold");
+          this.hud.banner(`${HEROES[e.cls].name} Falls`, "", "gold");
         }
         if (this.kind === "run" || this.kind === "workshop")
           this.hud.setGold(
@@ -2249,11 +2636,138 @@ export class Game {
         const p = this.raid?.projectiles.find((q) => q.id === e.pid);
         if (p)
           audio.play(
-            p.kind === "fireball" || p.kind === "shadow" ? "magic" : "arrow",
-            { volume: 0.6 },
+            p.kind === "note"
+              ? "lute"
+              : p.kind === "fireball" ||
+                  p.kind === "shadow" ||
+                  p.kind === "bolt"
+                ? "magic"
+                : "arrow",
+            { volume: p.kind === "note" ? 0.4 : 0.6 },
           );
         break;
       }
+      case "zap":
+        r.zap(e.pts);
+        r.shake(0.12);
+        for (const q of e.pts.slice(1))
+          fx.burst(q.x, q.y, 8, {
+            color: "#cfe4ff",
+            kind: "spark",
+            size: 0.03,
+            speed: 3,
+            up: 1,
+            max: 0.25,
+            add: true,
+          });
+        this.once("zap", () =>
+          this.hud.toast("Lightning arcs through clumped heroes!", "good"),
+        );
+        break;
+      case "blink":
+        audio.play("blink");
+        for (const [x, y] of [
+          [e.fx, e.fy],
+          [e.x, e.y],
+        ]) {
+          fx.emit({
+            x,
+            y: y - 0.4,
+            kind: "ring",
+            size: 0.1,
+            size1: 0.9,
+            max: 0.4,
+            color: "rgba(200,150,255,0.9)",
+          });
+          fx.burst(x, y - 0.4, 12, {
+            color: "#c38cff",
+            kind: "star",
+            size: 0.05,
+            speed: 1.5,
+            up: 1,
+            max: 0.5,
+            add: true,
+          });
+        }
+        this.once("blink", () =>
+          this.hud.toast(
+            "Veyla blinks past your traps. Guard the hoard!",
+            "bad",
+          ),
+        );
+        break;
+      case "warcry":
+        audio.play("warcry");
+        r.shake(0.35);
+        for (let i = 0; i < 2; i++)
+          fx.emit({
+            x: e.x,
+            y: e.y - 0.5,
+            kind: "ring",
+            size: 0.2 + i * 0.3,
+            size1: 3.2,
+            max: 0.5 + i * 0.15,
+            color: "rgba(255,140,80,0.85)",
+          });
+        this.once("warcry", () =>
+          this.hud.toast(
+            "A war cry! Nearby heroes are fearless and fast.",
+            "bad",
+          ),
+        );
+        break;
+      case "smash":
+        audio.play("smash");
+        r.shake(0.25);
+        fx.text(e.x + 0.5, e.y + 0.2, "Smashed", "#ff9a6a", 0.9);
+        fx.burst(e.x + 0.5, e.y + 0.5, 14, {
+          color: "#8f877c",
+          kind: "shard",
+          size: 0.06,
+          speed: 2.5,
+          up: 2,
+          g: 9,
+          max: 0.6,
+        });
+        this.once("smash", () =>
+          this.hud.toast(
+            "Grukk breaks floor traps. Use darts and monsters.",
+            "bad",
+          ),
+        );
+        break;
+      case "inspire":
+        fx.burst(e.x, e.y - 0.8, 2, {
+          color: "#ff9fd0",
+          kind: "star",
+          size: 0.05,
+          speed: 0.6,
+          up: 1.2,
+          max: 0.6,
+          add: true,
+        });
+        this.once("inspire", () =>
+          this.hud.toast(
+            "The bard inspires the party. Silence the music!",
+            "info",
+          ),
+        );
+        break;
+      case "purge":
+        fx.text(e.x, e.y - 0.6, "Purged", "#fff2b0", 0.9);
+        fx.burst(e.x, e.y - 0.3, 10, {
+          color: "#fff2b0",
+          kind: "star",
+          size: 0.05,
+          speed: 1.2,
+          up: 1.5,
+          max: 0.5,
+          add: true,
+        });
+        this.once("purge", () =>
+          this.hud.toast("Inquisitors stop the undead from rising.", "bad"),
+        );
+        break;
       case "split":
         fx.burst(e.x, e.y - 0.2, 16, {
           color: "#5fd3a2",
@@ -2317,6 +2831,28 @@ export class Game {
                 max: 0.9,
               });
             }
+        }
+        if (e.power === "chill" && e.phase === "hit") {
+          fx.emit({
+            x: e.x + 0.5,
+            y: e.y + 0.5,
+            kind: "ring",
+            size: 0.2,
+            size1: 2.6,
+            max: 0.6,
+            color: "rgba(170,225,255,0.9)",
+          });
+          fx.burst(e.x + 0.5, e.y + 0.5, 30, {
+            color: "#dff4ff",
+            kind: "shard",
+            size: 0.04,
+            speed: 3,
+            up: 1,
+            g: 2,
+            max: 0.8,
+            spread: 2,
+          });
+          r.flash(e.x + 0.5, e.y + 0.5, 3, "#9fdcff", 0.5);
         }
         if (e.power === "shriek" && e.phase === "hit") {
           for (let i = 0; i < 3; i++)
@@ -2420,6 +2956,9 @@ export class Game {
         break;
       case "frost":
         audio.play("freeze");
+        break;
+      case "pylon":
+        audio.play("zap");
         break;
     }
   }
@@ -2587,19 +3126,17 @@ export class Game {
   }
 
   private ghost(): Ghost | null {
-    if (!this.hover || !this.run) {
-      if (this.phase === "raid" && this.power && this.hover)
-        return {
-          kind: "sell",
-          x: this.hover.x,
-          y: this.hover.y,
-          dir: 0,
-          ok: true,
-        };
-      return null;
-    }
+    // Aiming a power: outline the target tile.
+    if (this.phase === "raid" && this.power && this.hover)
+      return {
+        kind: "sell",
+        x: this.hover.x,
+        y: this.hover.y,
+        dir: 0,
+        ok: true,
+      };
+    if (!this.hover || !this.run) return null;
     const { x, y } = this.hover;
-    if (this.phase === "raid" && this.power && this.hover) return null;
     if (this.phase !== "build") return null;
     const run = this.run;
     if (!inside(run.layout, x, y)) return null;

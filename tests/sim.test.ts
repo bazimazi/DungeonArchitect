@@ -23,7 +23,7 @@ const base = () =>
     seed: 1234,
     biome: "crypt",
     architect: "mason",
-    infamy: 0,
+    depth: 1,
     powers: ["rockfall"],
   });
 const mods = (): RaidMods => ({

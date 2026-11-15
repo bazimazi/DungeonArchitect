@@ -6,7 +6,13 @@ import {
   type PieceId,
   type TrapId,
 } from "../game/defs";
-import { drawHero, drawMonster, drawTrap, portrait } from "../render/sprites";
+import {
+  drawHero,
+  drawMonster,
+  drawSawBlade,
+  drawTrap,
+  portrait,
+} from "../render/sprites";
 
 export function h<K extends keyof HTMLElementTagNameMap>(
   tag: K,
@@ -71,6 +77,16 @@ const P: Record<string, string> = {
   relic:
     '<path d="M12 3 20 8v8l-8 5-8-5V8z" fill="#7a4bc0" stroke="#e2c8ff" stroke-width="1.5"/><path d="M12 7v10M7.5 9.5l9 5M16.5 9.5l-9 5" stroke="#e2c8ff" stroke-width="1.1" opacity=".7"/>',
   up: '<path d="m6 14 6-6 6 6" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/>',
+  chill:
+    '<circle cx="12" cy="12" r="9" fill="#bfe6ff" stroke="#1a2a3a" stroke-width="1.5"/><path d="M12 5v14M5.9 8.5l12.2 7M5.9 15.5l12.2-7" stroke="#1a2a3a" stroke-width="1.6" stroke-linecap="round"/><path d="m10 6.5 2 1.5 2-1.5M10 17.5l2-1.5 2 1.5" fill="none" stroke="#1a2a3a" stroke-width="1.3" stroke-linecap="round"/>',
+  trophy:
+    '<path d="M7 4h10v5a5 5 0 0 1-10 0z" fill="#ffd166" stroke="#5a3a10" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 6H4.5a3 3 0 0 0 3 4M17 6h2.5a3 3 0 0 1-3 4" fill="none" stroke="#5a3a10" stroke-width="1.5"/><path d="M12 14v3M8 20.5h8l-1-3.5H9z" fill="#c8a050" stroke="#5a3a10" stroke-width="1.5" stroke-linejoin="round"/>',
+  abyss:
+    '<path d="M12 12m-1 0a1 1 0 1 1 2 0a3 3 0 1 1-6 0a5 5 0 1 1 10 0a7 7 0 1 1-14 0a9 9 0 0 1 9-9" fill="none" stroke="#d07aff" stroke-width="2" stroke-linecap="round"/>',
+  blocks:
+    '<rect x="3.5" y="12" width="7.5" height="7.5" rx="1.5" fill="#c8a070" stroke="#1a1620" stroke-width="1.4"/><rect x="13" y="12" width="7.5" height="7.5" rx="1.5" fill="#a08060" stroke="#1a1620" stroke-width="1.4"/><rect x="8.2" y="3.5" width="7.5" height="7.5" rx="1.5" fill="#e0b880" stroke="#1a1620" stroke-width="1.4"/>',
+  reroll:
+    '<path d="M19 8a7.5 7.5 0 0 0-13.5 1M5 16a7.5 7.5 0 0 0 13.5-1" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/><path d="m19.5 3.5-.5 4.8-4.6-1.2M4.5 20.5l.5-4.8 4.6 1.2" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>',
 };
 
 export function icon(name: keyof typeof P | string, cls = "ic") {
@@ -100,6 +116,12 @@ export function pieceArt(id: PieceId, size = 56) {
           used: false,
           fresh: id === "spikes" ? 0.8 : 0,
         });
+        // The saw's blade is drawn live in game; show it on cards too.
+        if (id === "saw") {
+          ctx.translate(0.5, 0.5);
+          ctx.scale(0.9, 0.9);
+          drawSawBlade(ctx, 0.3);
+        }
       },
       size,
       0.92,

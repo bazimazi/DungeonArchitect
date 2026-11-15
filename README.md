@@ -2,7 +2,7 @@
 
 Build a dungeon of traps and monsters, then watch greedy heroes try to rob it.
 
-Dungeon Architect is a roguelite dungeon-defense game. Each run lasts ten nights. Every night you dig tunnels, place traps and monsters, and see the party that's coming. Then night falls, and the heroes march on your hoard. After each raid you pick one of three boons. You win if your hoard survives the champion on night ten.
+Dungeon Architect is a roguelite dungeon-defense game. Each descent lasts ten nights. Every night you dig tunnels, place traps and monsters, and see the party that's coming. Then night falls, and the heroes march on your hoard. After each raid you pick one of three boons. You win if your hoard survives the champion on night ten. Each win opens a deeper dungeon, and the depths never end. You can also carry a winning dungeon into the endless Abyss.
 
 It runs in any modern browser, works offline after the first visit, and ships as Android and iOS apps via Capacitor. There is no server: dungeons are shared as links.
 
@@ -25,7 +25,9 @@ npm run dev        # http://localhost:5173
 
 ## Modes
 
-- **Descent:** the ten-night run. Earns renown, which unlocks pieces, architects, biomes and a power.
+- **Descent:** the ten-night run at a chosen depth. Each depth is a named dungeon with its own champion and twists, and depths get harder without limit. Earns renown, which unlocks pieces, architects, biomes and powers, and raises your architect rank.
+- **Abyss:** after a victory, keep going. Every night is harder, and a champion comes every fifth night. How deep can your dungeon go?
+- **Feats:** thirty long-term goals that pay renown.
 - **Daily:** the same seeded run for everyone each UTC day, with a shareable result line.
 - **Workshop:** unlimited gold and every unlocked piece. Test against any night's party and share your dungeon as a link.
 - **Raid links:** opening `#raid=…` lets you assemble a hero party and try to rob a friend's dungeon.
@@ -36,7 +38,7 @@ npm run dev        # http://localhost:5173
 npm test                    # unit tests (simulation, run logic, link codec)
 npm run test:e2e            # production build + Playwright (desktop and mobile)
 npm run build               # type-check, bundle, generate the offline cache
-BALANCE=1 npx vitest run tests/balance.test.ts   # difficulty curve report
+BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rate per depth, abyss, first run
 ```
 
 ### Layout
@@ -45,9 +47,9 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # difficulty curve report
   - `defs.ts`: data and tuning.
   - `grid.ts`: maps, pathfinding and line of sight.
   - `sim.ts`: the raid simulation.
-  - `run.ts`: nights, economy and drafts.
+  - `run.ts`: depths, nights, the abyss, economy, capacity and drafts.
   - `share.ts`: link codec.
-  - `profile.ts`: saves.
+  - `profile.ts`: saves, migrations and feats.
 - `src/render`: the Canvas renderer.
   - `world.ts`: terrain cache, lighting, actors and telegraphs.
   - `sprites.ts`: procedural art.

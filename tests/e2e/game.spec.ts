@@ -111,3 +111,108 @@ test("reloading on the results screen never replays the night", async ({
   await page.locator(".card-btn").first().click();
   await expect(page.locator(".night-num")).toHaveText("2");
 });
+
+const winRaid = (page: Page) =>
+  page.evaluate(() => {
+    type H = { alive: boolean };
+    const g = (
+      window as unknown as {
+        game: {
+          raid: {
+            finished: boolean;
+            step(): void;
+            events: unknown[];
+            heroes: H[];
+            damage(h: H, n: number, t: string, s: string): void;
+          } | null;
+        };
+      }
+    ).game;
+    for (let i = 0; i < 6000 && g.raid && !g.raid.finished; i++) {
+      for (const h of g.raid.heroes)
+        if (h.alive) g.raid.damage(h, 1e9, "magic", "test");
+      g.raid.step();
+      g.raid.events.length = 0;
+    }
+  });
+
+test("a veteran descends to a deeper depth with its twists", async ({
+  page,
+}) => {
+  const errors = await fresh(page);
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "da.profile.v1",
+      JSON.stringify({
+        v: 2,
+        renown: 120,
+        runs: 4,
+        wins: 2,
+        maxDepth: 3,
+        tutorial: 99,
+      }),
+    ),
+  );
+  await page.reload();
+  await page.getByText("New Descent").click();
+  await expect(page.locator(".depth-num")).toHaveText("3");
+  await expect(page.locator(".depth-info .mut").first()).toBeVisible();
+  await page.getByText("Descend", { exact: true }).click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  const depth = await page.evaluate(
+    () =>
+      (window as unknown as { game: { run: { depth: number } } }).game.run
+        .depth,
+  );
+  expect(depth).toBe(3);
+  await expect(page.locator(".res.cap")).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test("winning night ten opens the abyss", async ({ page }) => {
+  const errors = await fresh(page);
+  await page.getByText("New Descent").click();
+  await expect(page.locator(".start-btn")).toBeVisible();
+  await page.evaluate(() => {
+    const g = (
+      window as unknown as {
+        game: { run: { night: number }; enterBuild(k: string): void };
+      }
+    ).game;
+    g.run.night = 10;
+    g.enterBuild("run");
+  });
+  await page.locator(".start-btn").click();
+  await winRaid(page);
+  await expect(page.locator(".results")).toBeVisible({ timeout: 10_000 });
+  await page.locator(".results .btn.primary").click();
+  await expect(page.locator(".gameover")).toBeVisible();
+  await page.getByText("Delve into the Abyss").click();
+  await page.locator(".card-btn").first().click();
+  await expect(page.locator(".night-num")).toHaveText("11");
+  await expect(page.locator(".night-badge")).toHaveClass(/abyss/);
+  const maxDepth = await page.evaluate(
+    () =>
+      (window as unknown as { game: { profile: { maxDepth: number } } }).game
+        .profile.maxDepth,
+  );
+  expect(maxDepth).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test("abandoning from the title and backing out returns to the title", async ({
+  page,
+}) => {
+  const errors = await fresh(page);
+  await page.getByText("New Descent").click();
+  await expect(page.locator(".start-btn")).toBeVisible();
+  await page.waitForTimeout(700);
+  await page.reload();
+  await page.getByText("New Descent").click();
+  await page.getByRole("button", { name: "Abandon" }).click();
+  await expect(page.locator(".setup")).toBeVisible();
+  await page.getByRole("button", { name: "Back" }).click();
+  await expect(page.locator(".title-screen")).toBeVisible();
+  await expect(page.getByText("Continue")).toHaveCount(0);
+  expect(errors).toEqual([]);
+});

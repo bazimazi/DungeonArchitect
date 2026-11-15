@@ -1,73 +1,97 @@
 // Balance report: BALANCE=1 npx vitest run tests/balance.test.ts
-import { newRun, partyFor, raidMods, pieceCost } from "../src/game/run";
-import { simulate } from "../src/game/sim";
-import { distanceField, pathTo } from "../src/game/grid";
-import type { PieceId } from "../src/game/defs";
+// A heuristic bot plays whole runs at several depths and into the abyss.
+import { playRun } from "./bot";
+import { BASE_POOL, TUNE, type PieceId } from "../src/game/defs";
+if (process.env.TUNE) Object.assign(TUNE, JSON.parse(process.env.TUNE));
 
-function build(seed: number, gold: number, kit: PieceId[]) {
-  const run = newRun({
-    seed,
-    biome: "crypt",
-    architect: "mason",
-    infamy: 0,
-    powers: ["rockfall"],
-  });
-  const l = run.layout;
-  const f = distanceField(l, l.hoard.x, l.hoard.y);
-  const route = pathTo(l, f, l.entrance.x, l.entrance.y).slice(2, -2);
-  let g = gold,
-    i = 0;
-  for (const k of kit) {
-    const c = pieceCost(run, k);
-    if (g < c) break;
-    const spot = route[Math.floor(((i + 0.5) / kit.length) * route.length)];
-    i++;
-    if (l.objects.some((o) => o.x === spot.x && o.y === spot.y)) continue;
-    l.objects.push({ id: l.nextId++, kind: k, x: spot.x, y: spot.y, dir: 2 });
-    g -= c;
-  }
-  return run;
-}
-it.skipIf(!process.env.BALANCE)("balance report", () => {
-  const kits: [string, PieceId[]][] = [
-    [
-      "spikes+skel",
-      ["skeleton", "spikes", "spikes", "skeleton", "darts", "spikes"],
-    ],
-    ["skeletons", ["skeleton", "skeleton", "skeleton", "skeleton", "skeleton"]],
-  ];
-  for (const n of [1, 2, 3, 5, 8, 10]) {
-    for (const [name, kit] of kits) {
-      let stolen = 0,
-        killed = 0,
-        secs = 0;
-      for (let seed = 1; seed <= 20; seed++) {
-        const run = build(
-          seed,
-          150 + (n - 1) * 90,
-          [...kit, ...kit, ...kit].slice(0, 4 + n * 2),
-        );
-        run.night = n;
-        const r = simulate({
-          layout: run.layout,
-          party: partyFor(run, n),
-          seed,
-          night: n,
-          hoard: 12,
-          mods: raidMods(run),
-        });
-        const res = r.result();
-        stolen += res.stolen;
-        killed += res.killed;
-        secs += res.seconds;
+const SEEDS = Number(process.env.SEEDS ?? 24);
+const out = (s: string) => process.stderr.write(s + "\n");
+
+it.skipIf(!process.env.BALANCE)(
+  "difficulty curve across depths",
+  () => {
+    const depths = (process.env.DEPTHS ?? "1,2,3,5,8,12")
+      .split(",")
+      .map(Number);
+    for (const depth of depths) {
+      let wins = 0;
+      let stars = 0;
+      let nights = 0;
+      const lostAt: number[] = [];
+      const stolenBy = new Array(11).fill(0);
+      const secsBy = new Array(11).fill(0);
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const r = playRun({ seed: seed * 101 + depth, depth });
+        if (r.won) wins++;
+        else lostAt.push(r.nights);
+        stars += r.stars;
+        nights += r.nights;
+        for (const n of r.perNight) {
+          stolenBy[n.night] += n.stolen;
+          secsBy[n.night] += n.secs;
+        }
       }
-      process.stderr.write(
-        `\nnight ${n} ${name}: party=${partyFor({ seed: 1, infamy: 0 }, n)
-          .map((p) => p.cls)
-          .join(
-            ",",
-          )} avgStolen=${(stolen / 20).toFixed(2)} avgKilled=${(killed / 20).toFixed(2)} avgSec=${(secs / 20).toFixed(0)}`,
+      out(
+        `depth ${depth}: win ${((wins / SEEDS) * 100).toFixed(0)}% stars ${(stars / SEEDS).toFixed(1)} avgNights ${(nights / SEEDS).toFixed(1)} lostAt [${lostAt.sort((a, b) => a - b).join(",")}]`,
+      );
+      out(
+        `   stolen/night ${stolenBy
+          .slice(1)
+          .map((v) => (v / SEEDS).toFixed(1))
+          .join(" ")}`,
+      );
+      out(
+        `   secs/night   ${secsBy
+          .slice(1)
+          .map((v) => (v / SEEDS).toFixed(0))
+          .join(" ")}`,
       );
     }
-  }
-});
+  },
+  600_000,
+);
+
+it.skipIf(!process.env.BALANCE)(
+  "abyss endurance",
+  () => {
+    for (const depth of [1, 4]) {
+      const reached: number[] = [];
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const r = playRun({ seed: seed * 31 + depth, depth, abyssUntil: 60 });
+        if (r.won) reached.push(r.nights);
+      }
+      reached.sort((a, b) => a - b);
+      out(
+        `abyss from depth ${depth}: winners ${reached.length}/${SEEDS} fell at [${reached.join(",")}]`,
+      );
+    }
+  },
+  600_000,
+);
+
+it.skipIf(!process.env.BALANCE)(
+  "first descent with the starter kit",
+  () => {
+    for (const skill of [0.3, 0.7]) {
+      let wins = 0;
+      let stars = 0;
+      const lost: number[] = [];
+      for (let seed = 1; seed <= SEEDS; seed++) {
+        const r = playRun({
+          seed: seed * 13,
+          depth: 1,
+          skill,
+          pool: BASE_POOL as PieceId[],
+          powers: ["rockfall"],
+        });
+        if (r.won) wins++;
+        else lost.push(r.nights);
+        stars += r.stars;
+      }
+      out(
+        `first descent, skill ${skill}: win ${((wins / SEEDS) * 100).toFixed(0)}% stars ${(stars / SEEDS).toFixed(1)} lostAt [${lost.join(",")}]`,
+      );
+    }
+  },
+  600_000,
+);

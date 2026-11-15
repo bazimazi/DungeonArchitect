@@ -12,6 +12,7 @@ import {
   PIECES,
   T,
   TICK,
+  isChampion,
   type Biome,
   type PieceId,
   type TrapId,
@@ -224,10 +225,58 @@ export class Renderer {
   flash(x: number, y: number, r: number, color: string, life = 0.35) {
     this.flashes.push({ x, y, r, color, life, max: life });
   }
+  /** Lightning arc through a list of points (storm pylons). */
+  zap(pts: { x: number; y: number }[]) {
+    this.zaps.push({ pts, life: 0.25, seed: Math.random() * 1000 });
+  }
+  private zaps: {
+    pts: { x: number; y: number }[];
+    life: number;
+    seed: number;
+  }[] = [];
+  private drawZaps(ctx: CanvasRenderingContext2D, dt: number) {
+    for (const z of this.zaps) {
+      const a = Math.max(0, z.life / 0.25);
+      for (const [w, color] of [
+        [0.14, `rgba(120,170,255,${0.5 * a})`],
+        [0.05, `rgba(235,245,255,${a})`],
+      ] as const) {
+        ctx.beginPath();
+        for (let i = 0; i < z.pts.length - 1; i++) {
+          const p = z.pts[i];
+          const q = z.pts[i + 1];
+          if (i === 0) ctx.moveTo(p.x, p.y);
+          const steps = 5;
+          for (let k = 1; k <= steps; k++) {
+            const f = k / steps;
+            const j =
+              k === steps
+                ? 0
+                : Math.sin(z.seed + i * 7 + k * 3.3 + z.life * 60) * 0.18;
+            ctx.lineTo(
+              p.x + (q.x - p.x) * f + j * (q.y - p.y > 0 ? 1 : -1),
+              p.y + (q.y - p.y) * f + j,
+            );
+          }
+        }
+        ctx.strokeStyle = color;
+        ctx.lineWidth = w;
+        ctx.lineJoin = "round";
+        ctx.stroke();
+      }
+      z.life -= dt;
+    }
+    this.zaps = this.zaps.filter((z) => z.life > 0);
+  }
 
   // ---------- terrain cache ----------
   private buildTerrain(l: Layout, biomeId: Biome["id"]) {
-    const px = Math.min(96, Math.round(this.scale * this.dpr));
+    // Quantised and independent of the kill zoom-punch, so the cache isn't
+    // rebuilt every frame while zooming or celebrating a kill.
+    const px = Math.min(
+      96,
+      Math.max(16, Math.ceil((this.fitScale * this.zoom * this.dpr) / 12) * 12),
+    );
     const key = `${biomeId}|${px}|${l.tiles.join("")}`;
     if (key === this.terrainKey && this.terrain) return;
     this.terrainKey = key;
@@ -356,6 +405,29 @@ export class Renderer {
       ctx.beginPath();
       ctx.ellipse(x + 0.7, y + 0.7, 0.08, 0.05, 0, 0, Math.PI * 2);
       ctx.fill();
+    } else if (d < 0.3 && b.id === "glacier") {
+      ctx.fillStyle = "rgba(200,240,255,0.35)";
+      ctx.beginPath();
+      ctx.moveTo(x + 0.3, y + 0.75);
+      ctx.lineTo(x + 0.38, y + 0.5);
+      ctx.lineTo(x + 0.46, y + 0.75);
+      ctx.closePath();
+      ctx.fill();
+      ctx.beginPath();
+      ctx.moveTo(x + 0.5, y + 0.8);
+      ctx.lineTo(x + 0.56, y + 0.62);
+      ctx.lineTo(x + 0.62, y + 0.8);
+      ctx.closePath();
+      ctx.fill();
+    } else if (d < 0.3 && b.id === "abyss") {
+      ctx.strokeStyle = "rgba(208,122,255,0.45)";
+      ctx.lineWidth = 0.025;
+      ctx.beginPath();
+      ctx.moveTo(x + 0.15, y + 0.4);
+      ctx.lineTo(x + 0.4, y + 0.55);
+      ctx.lineTo(x + 0.35, y + 0.75);
+      ctx.lineTo(x + 0.7, y + 0.85);
+      ctx.stroke();
     } else if (d < 0.3 && b.id === "forge") {
       ctx.strokeStyle = "rgba(255,110,40,0.4)";
       ctx.lineWidth = 0.025;
@@ -752,13 +824,7 @@ export class Renderer {
         0.88 +
         0.08 * noise1(time * 6 + t.x * 7) +
         0.04 * Math.sin(time * 23 + t.y);
-      addLight(
-        t.x,
-        t.y,
-        2.6 * f,
-        b.id === "grotto" ? "#7ef0c8" : "#ffb050",
-        0.85,
-      );
+      addLight(t.x, t.y, 2.6 * f, b.torch, 0.85);
     }
     const hp = scene.hoardMax ? scene.hoard / scene.hoardMax : 1;
     addLight(
@@ -773,7 +839,11 @@ export class Renderer {
       for (let x = 0; x < l.w; x++)
         if (l.tiles[y * l.w + x] === T.Vein)
           addLight(x + 0.5, y + 0.5, 0.9, "#ffd166", 0.35);
+    for (const z of this.zaps)
+      for (const p of z.pts) addLight(p.x, p.y, 1.6, "#bcd8ff", z.life / 0.25);
     for (const o of l.objects) {
+      if (o.kind === "pylon" && !raid)
+        addLight(o.x + 0.5, o.y, 0.9, "#9fc8ff", 0.4);
       if (o.kind === "frost")
         addLight(o.x + 0.5, o.y + 0.5, 1.1, "#7ad0ff", 0.5);
       if (o.kind === "necro")
@@ -784,12 +854,16 @@ export class Renderer {
         if (!h.alive) continue;
         const v = this.actorView(h, scene.alpha);
         const c =
-          h.cls === "mage"
+          h.cls === "mage" || h.cls === "archmage"
             ? "#c79bff"
             : h.cls === "paladin" || h.cls === "cleric"
               ? "#fff0b0"
-              : "#ffbe70";
-        addLight(v.x, v.y - 0.4, h.cls === "paladin" ? 2.6 : 1.7, c, 0.75);
+              : h.cls === "windcaller"
+                ? "#9ff0e8"
+                : h.cls === "bard"
+                  ? "#ffb0d8"
+                  : "#ffbe70";
+        addLight(v.x, v.y - 0.4, isChampion(h.cls) ? 2.6 : 1.7, c, 0.75);
       }
       for (const m of raid.monsters) {
         if (!m.alive) continue;
@@ -811,6 +885,14 @@ export class Renderer {
           addLight(t.obj.x + 0.5, t.obj.y + 0.5, 0.9, "#ff5a2a", 0.5);
         if (t.kind === "gas" && t.active)
           addLight(t.obj.x + 0.5, t.obj.y + 0.5, 1.8, "#89d36a", 0.4);
+        if (t.kind === "pylon" && !t.disabled)
+          addLight(
+            t.obj.x + 0.5,
+            t.obj.y,
+            t.warn ? 1.6 : 0.9,
+            "#9fc8ff",
+            t.warn ? 0.8 : 0.4,
+          );
       }
       for (const [k] of raid.tarFire)
         addLight(
@@ -847,7 +929,7 @@ export class Renderer {
       const f = 0.85 + 0.15 * noise1(time * 9 + t.x * 3);
       ctx.globalAlpha = 0.9;
       ctx.drawImage(
-        this.lightSprite(b.id === "grotto" ? "#7ef0c8" : "#ffb050"),
+        this.lightSprite(b.torch),
         t.x - 0.22 * f,
         t.y - 0.34 * f,
         0.44 * f,
@@ -871,6 +953,7 @@ export class Renderer {
       1.8,
     );
     ctx.globalAlpha = 1;
+    this.drawZaps(ctx, dt);
     if (raid) this.drawTelegraphs(ctx, raid, time, true);
     this.fx.drawWorld(ctx, true);
     // Dust motes catching the light.
@@ -1009,7 +1092,14 @@ export class Renderer {
     const squash = v.z > 0 ? 1.08 : 1;
     ctx.scale(1 / squash, squash);
     ctx.scale(0.9, 0.9);
-    if (h.elite || h.cls === "paladin") {
+    if (h.st.insp > 0) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.18 + Math.sin(time * 6) * 0.06;
+      ctx.drawImage(this.lightSprite("#ffb0d8"), -0.5, -1.0, 1.0, 1.1);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    }
+    if (h.elite || isChampion(h.cls)) {
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = 0.25 + Math.sin(time * 4) * 0.1;
       ctx.drawImage(this.lightSprite("#ffd166"), -0.6, -1.2, 1.2, 1.3);
@@ -1110,13 +1200,22 @@ export class Renderer {
     v: { x: number; y: number; z: number },
     tick: number,
   ) {
-    const top = v.y - v.z - (h.cls === "paladin" ? 1.25 : 0.95);
+    const boss = isChampion(h.cls);
+    const lift =
+      h.cls === "warlord"
+        ? 0.45
+        : boss
+          ? 0.3
+          : h.cls === "windcaller"
+            ? 0.15
+            : 0;
+    const top = v.y - v.z - 0.95 - lift;
     this.drawBar(
       ctx,
-      { x: v.x, y: top + 0.95 + (h.cls === "paladin" ? 0.3 : 0) },
+      { x: v.x, y: top + 0.95 + (boss ? 0.3 : 0) },
       h.hp / h.maxHp,
       h.hp / h.maxHp > 0.35 ? "#7ee081" : "#ff5a4a",
-      0.95 + (h.cls === "paladin" ? 0.3 : 0),
+      0.95 + (boss ? 0.3 : 0),
     );
     // Action ring: looting, disarming, digging.
     if (
@@ -1404,7 +1503,13 @@ export class Renderer {
             ? "#ff8a3a"
             : p.kind === "shadow"
               ? "#b48cff"
-              : "#fff0b0";
+              : p.kind === "note"
+                ? "#ff9fd0"
+                : p.kind === "web"
+                  ? "#e8e0ff"
+                  : p.kind === "bolt"
+                    ? "#9ff0e8"
+                    : "#fff0b0";
         ctx.globalCompositeOperation = "lighter";
         ctx.drawImage(this.lightSprite(color), -0.3, -0.3, 0.6, 0.6);
         ctx.globalCompositeOperation = "source-over";
@@ -1530,6 +1635,16 @@ export class Renderer {
       if (t.kind === "flame" && t.warn) {
         for (const tile of this.laneTiles(l, o.x, o.y, o.dir, 3))
           this.hatch(ctx, tile.x, tile.y, "rgba(255,120,60,0.8)", time);
+      }
+      if (t.kind === "pylon" && t.warn) {
+        ctx.beginPath();
+        ctx.arc(o.x + 0.5, o.y + 0.5, 2.6, 0, Math.PI * 2);
+        ctx.setLineDash([0.12, 0.12]);
+        ctx.lineDashOffset = -time * 2;
+        ctx.strokeStyle = "rgba(160,200,255,0.75)";
+        ctx.lineWidth = 0.045;
+        ctx.stroke();
+        ctx.setLineDash([]);
       }
       if (t.kind === "gas" && t.warn) {
         ctx.beginPath();
@@ -1713,6 +1828,7 @@ export class Renderer {
     const radius: Partial<Record<PieceId, number>> = {
       gas: 1.6,
       keg: 1.7,
+      pylon: 2.6,
       lure: 0,
     };
     if (PIECES[kind].kind === "monster") {
@@ -1795,7 +1911,7 @@ function shade(color: string, amt: number) {
     g = (n >> 8) & 255;
     b = n & 255;
   } else {
-    [r, g, b] = (color.match(/d+/g) ?? ["0", "0", "0"]).map(Number);
+    [r, g, b] = (color.match(/\d+/g) ?? ["0", "0", "0"]).map(Number);
   }
   if (amt >= 0) {
     r += (255 - r) * amt;

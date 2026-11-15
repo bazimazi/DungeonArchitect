@@ -39,7 +39,14 @@ export type Sfx =
   | "defeat"
   | "card"
   | "unlock"
-  | "step";
+  | "step"
+  | "zap"
+  | "blink"
+  | "warcry"
+  | "smash"
+  | "chill"
+  | "lute"
+  | "feat";
 
 const PENTA = [0, 3, 5, 7, 10, 12, 15, 17];
 
@@ -397,6 +404,80 @@ export class AudioEngine {
             0.25,
             0.05 * v,
             t + i * 0.06,
+            this.reverbSend,
+          );
+        break;
+      case "zap":
+        this.noiseBurst("highpass", 3000, 6000, 0.18, 0.35 * v, t, out, 0.7);
+        this.osc("square", 90 * p, 60 * p, 0.2, 0.12 * v, t, out);
+        this.osc("sawtooth", 1800 * p, 300 * p, 0.12, 0.05 * v, t, out);
+        break;
+      case "blink":
+        this.osc("sine", 400 * p, 1600 * p, 0.12, 0.12 * v, t, out);
+        this.osc(
+          "sine",
+          1600 * p,
+          600 * p,
+          0.2,
+          0.08 * v,
+          t + 0.1,
+          this.reverbSend,
+        );
+        break;
+      case "warcry":
+        this.osc("sawtooth", 140 * p, 110 * p, 0.6, 0.16 * v, t, out, 0.05, 15);
+        this.osc(
+          "sawtooth",
+          210 * p,
+          160 * p,
+          0.6,
+          0.1 * v,
+          t,
+          this.reverbSend,
+          0.05,
+          -15,
+        );
+        this.noiseBurst("bandpass", 600, 300, 0.5, 0.15 * v, t, out, 1.2, 0.04);
+        break;
+      case "smash":
+        this.noiseBurst("lowpass", 2400, 200, 0.3, 0.5 * v, t, out, 0.8);
+        this.osc("square", 220 * p, 80 * p, 0.15, 0.1 * v, t, out);
+        break;
+      case "chill":
+        this.noiseBurst(
+          "bandpass",
+          4000,
+          1200,
+          0.6,
+          0.25 * v,
+          t,
+          out,
+          1.5,
+          0.05,
+        );
+        this.osc("sine", 1400 * p, 900 * p, 0.5, 0.05 * v, t, this.reverbSend);
+        break;
+      case "lute":
+        for (let i = 0; i < 3; i++)
+          this.osc(
+            "triangle",
+            (523 + i * 131) * p,
+            (523 + i * 131) * p,
+            0.18,
+            0.05 * v,
+            t + i * 0.06,
+            this.reverbSend,
+          );
+        break;
+      case "feat":
+        for (let i = 0; i < 5; i++)
+          this.osc(
+            "triangle",
+            523 * 2 ** (PENTA[i + 2] / 12),
+            523 * 2 ** (PENTA[i + 2] / 12),
+            0.25,
+            0.09 * v,
+            t + i * 0.07,
             this.reverbSend,
           );
         break;

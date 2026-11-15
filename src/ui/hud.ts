@@ -1,9 +1,13 @@
 /** In-game HUD floating over the fullscreen world. */
 import {
   HEROES,
+  MUTATORS,
   PIECES,
   POWERS,
+  isChampion,
+  roman,
   type HeroClass,
+  type MutatorId,
   type PieceId,
   type PowerId,
 } from "../game/defs";
@@ -45,6 +49,10 @@ export class Hud {
   private dreadBox: HTMLElement;
   private dreadFill: HTMLElement;
   private dreadText: HTMLElement;
+  private capBox: HTMLElement;
+  private capEl: HTMLElement;
+  private mutEl: HTMLElement;
+  private badge!: HTMLElement;
   private party: HTMLElement;
   private partyTitle: HTMLElement;
   private partyList: HTMLElement;
@@ -102,6 +110,17 @@ export class Hud {
       h("span", { class: "meter" }, this.dreadFill),
       this.dreadText,
     );
+    this.capEl = h("b", { class: "num" }, "0");
+    this.capBox = h(
+      "div",
+      {
+        class: "res cap",
+        title: "Pieces placed / dungeon capacity (grows each night)",
+      },
+      icon("blocks"),
+      this.capEl,
+    );
+    this.mutEl = h("div", { class: "mutators" });
     this.soundBtn = h(
       "button",
       {
@@ -123,18 +142,19 @@ export class Hud {
     this.top = h(
       "header",
       { class: "hud-top" },
-      h(
+      (this.badge = h(
         "div",
         { class: "night-badge" },
         h("small", {}, "Night"),
         this.nightEl,
         this.pips,
-      ),
+      )),
       h(
         "div",
         { class: "resources" },
         this.goldBox,
         this.hoardBox,
+        this.capBox,
         this.dreadBox,
       ),
       h(
@@ -151,7 +171,13 @@ export class Hud {
     );
     this.partyTitle = h("span", { class: "party-title" }, "Tonight");
     this.partyList = h("div", { class: "party-list" });
-    this.party = h("div", { class: "party" }, this.partyTitle, this.partyList);
+    this.party = h(
+      "div",
+      { class: "party" },
+      this.mutEl,
+      this.partyTitle,
+      this.partyList,
+    );
 
     this.digBtn = h(
       "button",
@@ -272,6 +298,27 @@ export class Hud {
 
   setNight(n: number, total: number, stars: number[]) {
     this.nightEl.textContent = String(n);
+    this.badge.classList.toggle("abyss", n > total);
+    if (n > total) {
+      // In the abyss the pips count down to the next champion (every 5th night).
+      const start = Math.floor((n - 1) / 5) * 5 + 1;
+      this.pips.replaceChildren(
+        ...Array.from({ length: 5 }, (_, i) => {
+          const night = start + i;
+          return h("i", {
+            class:
+              night < n
+                ? `done s${stars[night - 1] ?? 0}`
+                : night === n
+                  ? "now"
+                  : night % 5 === 0
+                    ? "boss"
+                    : "",
+          });
+        }),
+      );
+      return;
+    }
     this.pips.replaceChildren(
       ...Array.from({ length: total }, (_, i) =>
         h("i", {
@@ -292,7 +339,35 @@ export class Hud {
   }
   setNightLabel(label: string) {
     this.nightEl.textContent = label;
+    this.badge.classList.remove("abyss");
     this.pips.replaceChildren();
+  }
+  setCapacity(used: number, cap: number) {
+    this.capBox.hidden = !Number.isFinite(cap);
+    if (!Number.isFinite(cap)) return;
+    this.capEl.textContent = `${used}/${cap}`;
+    this.capBox.classList.toggle("full", used >= cap);
+  }
+  pulseCapacity() {
+    this.capBox.classList.remove("bad");
+    void this.capBox.offsetWidth;
+    this.capBox.classList.add("bad");
+  }
+  setMutators(ids: MutatorId[]) {
+    this.mutEl.replaceChildren(
+      ...ids.map((id) => {
+        const m = MUTATORS[id];
+        return h(
+          "button",
+          {
+            class: `mut${m.good ? " good" : ""}`,
+            title: m.text,
+            onclick: () => this.toast(`${m.name}: ${m.text}`, "info"),
+          },
+          m.name,
+        );
+      }),
+    );
   }
 
   setGold(v: number, infinite = false) {
@@ -317,8 +392,8 @@ export class Hud {
     }
     this.hoardBox.classList.toggle("low", v <= Math.ceil(max * 0.3));
   }
-  setDread(v: number) {
-    this.dreadFill.style.width = `${(v / 15) * 100}%`;
+  setDread(v: number, max = 15) {
+    this.dreadFill.style.width = `${(v / max) * 100}%`;
     this.dreadText.textContent = String(Math.floor(v));
   }
   goldRect() {
@@ -339,7 +414,7 @@ export class Hud {
         const cell = h(
           "button",
           {
-            class: `hero-chip${p.elite ? " elite" : ""}${p.cls === "paladin" ? " boss" : ""}`,
+            class: `hero-chip${p.elite ? " elite" : ""}${isChampion(p.cls) ? " boss" : ""}`,
             "data-name": `${p.elite ? "Elite " : ""}${HEROES[p.cls].name}`,
             "aria-label": `${HEROES[p.cls].name}${p.elite ? " (elite)" : ""}`,
           },
@@ -407,9 +482,7 @@ export class Hud {
             icon("coin", "ic tiny"),
             String(it.cost),
           ),
-          it.tier > 1
-            ? h("span", { class: "tier" }, "I".repeat(it.tier))
-            : null,
+          it.tier > 1 ? h("span", { class: "tier" }, roman(it.tier)) : null,
           i < 9 ? h("kbd", {}, String(i + 1)) : null,
         ),
       ),
@@ -452,7 +525,9 @@ export class Hud {
               "aria-label": POWERS[p].name,
               onclick: () => this.hd.power(p),
             },
-            icon(p === "rockfall" ? "rock" : "shriek"),
+            icon(
+              p === "rockfall" ? "rock" : p === "chill" ? "chill" : "shriek",
+            ),
             h("span", { class: "pname" }, POWERS[p].name),
             h(
               "span",

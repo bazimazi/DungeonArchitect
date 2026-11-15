@@ -88,3 +88,56 @@ describe("dungeon links", () => {
     ).toBeNull();
   });
 });
+
+describe("links after the expansion", () => {
+  it("round-trips new pieces, new biomes and tier V", () => {
+    const layout = generateLayout(7, "abyss");
+    const floor = layout.tiles
+      .map((t, i) => (t === 1 && i > layout.w * 2 ? i : -1))
+      .filter((i) => i >= 0);
+    layout.objects = (["pylon", "spider", "golem"] as const).map((kind, i) => ({
+      id: i + 1,
+      kind,
+      x: floor[i * 2] % layout.w,
+      y: Math.floor(floor[i * 2] / layout.w),
+      dir: 2,
+    }));
+    for (const biome of ["glacier", "abyss"] as const) {
+      const d = decodeDungeon(
+        encodeDungeon({
+          name: "Deep",
+          biome,
+          layout,
+          tiers: { golem: 5 },
+          budget: 20,
+          rules: 2,
+        }),
+      )!;
+      expect(d.biome).toBe(biome);
+      expect(d.tiers.golem).toBe(5);
+      expect(d.layout.objects.map((o) => o.kind)).toEqual([
+        "pylon",
+        "spider",
+        "golem",
+      ]);
+    }
+  });
+  it("still opens links made before the expansion", () => {
+    const layout = generateLayout(3, "crypt");
+    const code = encodeDungeon({
+      name: "Old",
+      biome: "crypt",
+      layout,
+      tiers: {},
+      budget: 10,
+      rules: 1,
+    });
+    // Rewrite the version byte to 1, as older builds wrote it.
+    const bytes = atob(code.replace(/-/g, "+").replace(/_/g, "/"));
+    const old = btoa(String.fromCharCode(1) + bytes.slice(1))
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
+    expect(decodeDungeon(old)?.name).toBe("Old");
+  });
+});

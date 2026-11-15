@@ -127,8 +127,39 @@ export function drawHero(
   ctx.save();
   ctx.lineWidth = 0.04;
   ctx.lineJoin = "round";
-  const big = cls === "paladin" ? 1.28 : cls === "dwarf" ? 0.92 : 1;
+  const big =
+    cls === "paladin"
+      ? 1.28
+      : cls === "archmage"
+        ? 1.24
+        : cls === "warlord"
+          ? 1.42
+          : cls === "dwarf"
+            ? 0.92
+            : 1;
   ctx.scale(big * look.face, big);
+  // Windcallers float on a little whirlwind.
+  if (cls === "windcaller") {
+    ctx.save();
+    ctx.globalAlpha *= 0.6;
+    for (let i = 0; i < 3; i++) {
+      ctx.beginPath();
+      ctx.ellipse(
+        0,
+        -0.02 - i * 0.06,
+        0.2 - i * 0.05,
+        0.05,
+        0,
+        look.t * 6 + i,
+        look.t * 6 + i + 4,
+      );
+      ctx.strokeStyle = col("#c8fff6");
+      ctx.lineWidth = 0.025;
+      ctx.stroke();
+    }
+    ctx.restore();
+    ctx.translate(0, -0.16 - Math.sin(look.t * 3) * 0.03);
+  }
   const walking = look.walk >= 0;
   const bob = walking
     ? Math.abs(Math.sin(look.walk)) * 0.05
@@ -144,6 +175,16 @@ export function drawHero(
   // Cape / back items.
   if (cls === "paladin")
     poly(ctx, [-0.18, -0.55, 0.12, -0.55, 0.05, -0.12, -0.28, -0.1], "#b02a3a");
+  if (cls === "archmage")
+    poly(
+      ctx,
+      [-0.18, -0.55, 0.12, -0.55, 0.08, -0.05, -0.32, -0.04],
+      "#2f1f5a",
+    );
+  if (cls === "warlord")
+    poly(ctx, [-0.2, -0.58, 0.14, -0.58, 0.08, -0.1, -0.3, -0.12], "#5a3a22");
+  if (cls === "bard")
+    poly(ctx, [-0.16, -0.54, 0.08, -0.54, 0.0, -0.2, -0.22, -0.18], "#7a2a5a");
   if (cls === "ranger" || cls === "rogue")
     poly(
       ctx,
@@ -164,8 +205,18 @@ export function drawHero(
     dwarf: "#b0703a",
     berserker: "#c9503c",
     paladin: "#e8c25a",
+    bard: "#d0609a",
+    windcaller: "#5fb8b0",
+    inquisitor: "#3a3440",
+    archmage: "#5a3aa0",
+    warlord: "#8a5a3a",
   };
-  if (cls === "mage" || cls === "cleric") {
+  if (
+    cls === "mage" ||
+    cls === "cleric" ||
+    cls === "archmage" ||
+    cls === "windcaller"
+  ) {
     poly(
       ctx,
       [-0.17, -0.52, 0.17, -0.52, 0.23, -0.12, -0.23, -0.12],
@@ -174,6 +225,11 @@ export function drawHero(
     if (cls === "cleric") {
       rrect(ctx, -0.035, -0.46, 0.07, 0.24, 0.01, "#d9a93a", false);
       rrect(ctx, -0.09, -0.4, 0.18, 0.06, 0.01, "#d9a93a", false);
+    } else if (cls === "archmage") {
+      line(ctx, -0.2, -0.2, 0.2, -0.2, "#ffd166", 0.035);
+      circle(ctx, 0, -0.42, 0.05, "#ffd166", false);
+    } else if (cls === "windcaller") {
+      line(ctx, -0.18, -0.24, 0.18, -0.3, "#c8fff6", 0.03);
     } else {
       line(ctx, -0.18, -0.2, 0.18, -0.2, "#c7a2ff", 0.03);
     }
@@ -202,6 +258,19 @@ export function drawHero(
     if (cls === "berserker") {
       line(ctx, -0.12, -0.5, 0.12, -0.24, "#5a2a22", 0.05);
     }
+    if (cls === "inquisitor") {
+      rrect(ctx, -0.13, -0.5, 0.26, 0.2, 0.05, "#c9d0dc");
+      rrect(ctx, -0.025, -0.47, 0.05, 0.15, 0.01, "#b02a3a", false);
+      rrect(ctx, -0.07, -0.43, 0.14, 0.045, 0.01, "#b02a3a", false);
+    }
+    if (cls === "warlord") {
+      ellipse(ctx, 0, -0.44, 0.13, 0.08, "#a7adb8");
+      line(ctx, -0.17, -0.3, 0.17, -0.3, "#3a2a1a", 0.05);
+      circle(ctx, 0, -0.3, 0.04, "#ffd166");
+    }
+    if (cls === "bard") {
+      line(ctx, -0.14, -0.48, 0.14, -0.26, "#ffd166", 0.025);
+    }
   }
   // Off-hand: shield for knights/paladins.
   if (cls === "knight" || cls === "paladin") {
@@ -222,7 +291,7 @@ export function drawHero(
   }
   // Head.
   const hy = -0.66 + short;
-  circle(ctx, 0, hy, 0.15, SKIN);
+  circle(ctx, 0, hy, 0.15, cls === "warlord" ? "#8fb06a" : SKIN);
   // Headgear.
   switch (cls) {
     case "knight":
@@ -344,9 +413,89 @@ export function drawHero(
         "#d4442e",
       );
       break;
+    case "bard":
+      ellipse(ctx, 0, hy - 0.08, 0.19, 0.05, "#7a2a5a");
+      poly(
+        ctx,
+        [-0.12, hy - 0.09, 0.12, hy - 0.09, 0.04, hy - 0.24],
+        "#a03a7a",
+      );
+      line(ctx, -0.04, hy - 0.16, -0.26, hy - 0.36, "#fff2b0", 0.03);
+      break;
+    case "windcaller":
+      ctx.beginPath();
+      ctx.arc(0, hy, 0.17, Math.PI * 0.9, Math.PI * 2.1);
+      ctx.lineTo(0.12, hy + 0.1);
+      ctx.lineTo(-0.16, hy + 0.12);
+      ctx.closePath();
+      shape(ctx, "#3f8a84");
+      circle(ctx, -0.02, hy - 0.2, 0.04, "#c8fff6", false);
+      break;
+    case "inquisitor":
+      ellipse(ctx, 0, hy - 0.1, 0.22, 0.05, "#1c1820");
+      rrect(ctx, -0.12, hy - 0.36, 0.24, 0.27, 0.03, "#1c1820");
+      rrect(ctx, -0.12, hy - 0.16, 0.24, 0.04, 0.01, "#b02a3a", false);
+      break;
+    case "archmage":
+      ellipse(ctx, 0, hy - 0.08, 0.27, 0.06, "#2f1f5a");
+      poly(
+        ctx,
+        [-0.15, hy - 0.09, 0.15, hy - 0.09, 0.02, hy - 0.4, -0.12, hy - 0.58],
+        "#5a3aa0",
+      );
+      if (!FLASH) {
+        circle(ctx, -0.12, hy - 0.58, 0.045, "#ffd166", false);
+        circle(ctx, 0.04, hy - 0.22, 0.02, "#ffe9a0", false);
+        circle(ctx, -0.06, hy - 0.32, 0.016, "#ffe9a0", false);
+      }
+      // Long white beard.
+      poly(
+        ctx,
+        [
+          -0.1,
+          hy + 0.04,
+          0.14,
+          hy + 0.04,
+          0.08,
+          hy + 0.3,
+          0.02,
+          hy + 0.36,
+          -0.04,
+          hy + 0.26,
+        ],
+        "#eeeaf5",
+      );
+      break;
+    case "warlord":
+      ctx.beginPath();
+      ctx.arc(0, hy - 0.01, 0.17, Math.PI, 0);
+      ctx.closePath();
+      shape(ctx, "#5a5048");
+      poly(
+        ctx,
+        [-0.14, hy - 0.08, -0.34, hy - 0.2, -0.3, hy - 0.42, -0.2, hy - 0.14],
+        "#efe6d0",
+      );
+      poly(
+        ctx,
+        [0.14, hy - 0.08, 0.34, hy - 0.2, 0.3, hy - 0.42, 0.2, hy - 0.14],
+        "#efe6d0",
+      );
+      poly(
+        ctx,
+        [0.04, hy + 0.06, 0.08, hy + 0.0, 0.11, hy + 0.06],
+        "#f4ecd2",
+        false,
+      );
+      break;
   }
   // Eye.
-  if (cls !== "knight" && cls !== "paladin" && cls !== "rogue")
+  if (
+    cls !== "knight" &&
+    cls !== "paladin" &&
+    cls !== "rogue" &&
+    cls !== "windcaller"
+  )
     circle(ctx, 0.07, hy - 0.01, 0.022, "#1c1c24", false);
   // Weapon arm.
   ctx.save();
@@ -392,6 +541,32 @@ export function drawHero(
     case "berserker":
       line(ctx, 0, 0, 0.3, -0.2, "#6b4a2a", 0.05);
       poly(ctx, [0.22, -0.32, 0.4, -0.3, 0.38, -0.08, 0.26, -0.16], "#cfd6df");
+      break;
+    case "bard":
+      line(ctx, -0.02, 0.04, 0.3, -0.2, "#6b4a2a", 0.03);
+      ellipse(ctx, 0.02, 0.04, 0.1, 0.08, "#c8803a", true, -0.6);
+      circle(ctx, 0.02, 0.04, 0.025, "#3a2010", false);
+      break;
+    case "windcaller":
+      line(ctx, 0, 0.14, 0.12, -0.38, "#d8e6e0", 0.04);
+      circle(ctx, 0.13, -0.42, 0.065, FLASH ? "#fff" : "#7ff0e0");
+      break;
+    case "inquisitor":
+      line(ctx, 0, 0, 0.3, -0.18, "#5a4632", 0.05);
+      rrect(ctx, 0.22, -0.32, 0.18, 0.14, 0.03, "#a7adb8");
+      break;
+    case "archmage":
+      line(ctx, 0, 0.18, 0.14, -0.42, "#4a3020", 0.05);
+      circle(ctx, 0.15, -0.47, 0.08, FLASH ? "#fff" : "#c38cff");
+      break;
+    case "warlord":
+      line(ctx, 0, 0.04, 0.34, -0.24, "#4a3020", 0.06);
+      poly(
+        ctx,
+        [0.2, -0.4, 0.46, -0.42, 0.5, -0.14, 0.4, -0.06, 0.28, -0.2],
+        "#cfd6df",
+      );
+      line(ctx, 0.3, -0.38, 0.44, -0.12, "#8f969f", 0.02);
       break;
   }
   ctx.restore();
@@ -646,6 +821,73 @@ export function drawMonster(
       line(ctx, -0.08, -0.16, -0.24, -0.04, "#a5302a", 0.03);
       break;
     }
+    case "spider": {
+      ctx.translate(0, -bob * 0.5);
+      for (let i = 0; i < 4; i++) {
+        const k = Math.sin((walking ? look.walk : t * 2) + i * 1.3) * 0.04;
+        for (const s of [-1, 1]) {
+          ctx.beginPath();
+          ctx.moveTo(s * 0.08, -0.18);
+          ctx.lineTo(s * (0.22 + i * 0.03), -0.32 + i * 0.06 + k);
+          ctx.lineTo(s * (0.3 + i * 0.02), 0);
+          ctx.lineWidth = 0.05;
+          ctx.strokeStyle = OUT;
+          ctx.stroke();
+          ctx.lineWidth = 0.03;
+          ctx.strokeStyle = col("#4a3a5a");
+          ctx.stroke();
+        }
+      }
+      ctx.lineWidth = 0.04;
+      ellipse(ctx, -0.06, -0.24, 0.17, 0.14, "#5a4a72");
+      if (!FLASH) {
+        line(ctx, -0.14, -0.3, -0.0, -0.3, "#c86aff", 0.02);
+        line(ctx, -0.12, -0.24, 0.0, -0.24, "#c86aff", 0.02);
+      }
+      circle(ctx, 0.1, -0.22, 0.09, "#6e5a8a");
+      for (const [ex, ey] of [
+        [0.12, -0.25],
+        [0.16, -0.22],
+        [0.12, -0.19],
+      ])
+        circle(ctx, ex, ey, 0.016, "#ff4a5a", false);
+      break;
+    }
+    case "golem": {
+      ctx.scale(1.4, 1.4);
+      const leg = walking ? Math.sin(look.walk) * 0.04 : 0;
+      rrect(ctx, -0.17 + leg, -0.18, 0.13, 0.18, 0.03, "#7a746a");
+      rrect(ctx, 0.04 - leg, -0.18, 0.13, 0.18, 0.03, "#7a746a");
+      ctx.translate(0, -bob * 0.5);
+      rrect(ctx, -0.24, -0.5, 0.48, 0.34, 0.08, "#9a9488");
+      if (!FLASH) {
+        line(ctx, -0.12, -0.44, -0.02, -0.3, "#6a645a", 0.02);
+        line(ctx, 0.08, -0.46, 0.14, -0.36, "#6a645a", 0.02);
+        circle(
+          ctx,
+          0,
+          -0.36,
+          0.035,
+          `hsl(190,90%,${60 + Math.sin(t * 3) * 10}%)`,
+          false,
+        );
+      }
+      rrect(ctx, -0.11, -0.7, 0.24, 0.2, 0.05, "#a8a296");
+      if (!FLASH) {
+        rrect(ctx, 0.0, -0.64, 0.09, 0.035, 0.01, "#7af0ff", false);
+      }
+      ctx.save();
+      ctx.translate(-0.24, -0.42);
+      ctx.rotate(-sw * 0.3);
+      rrect(ctx, -0.1, -0.02, 0.12, 0.3, 0.04, "#8a8478");
+      ctx.restore();
+      ctx.save();
+      ctx.translate(0.22, -0.42);
+      ctx.rotate(sw * 0.6);
+      rrect(ctx, -0.02, -0.02, 0.13, 0.32, 0.04, "#8a8478");
+      ctx.restore();
+      break;
+    }
     case "ghost": {
       ctx.globalAlpha *= FLASH ? 1 : 0.8;
       ctx.translate(0, -0.2 + Math.sin(t * 2.5) * 0.06);
@@ -885,6 +1127,10 @@ export function drawTrap(ctx: C, kind: TrapId, look: TrapLook) {
       }
       break;
     }
+    case "pylon": {
+      drawPylon(ctx, look);
+      break;
+    }
     case "keg": {
       center();
       if (look.used) {
@@ -905,6 +1151,51 @@ export function drawTrap(ctx: C, kind: TrapId, look: TrapLook) {
     }
   }
   ctx.restore();
+}
+
+/** Storm pylon: drawn by drawTrap, kept separate for clarity. */
+function drawPylon(ctx: C, look: TrapLook) {
+  ctx.translate(0.5, 0.62);
+  rrect(ctx, -0.26, -0.08, 0.52, 0.2, 0.06, "#3e3a48");
+  poly(ctx, [-0.12, -0.08, 0.12, -0.08, 0.06, -0.6, -0.06, -0.6], "#5a566a");
+  for (let i = 0; i < 3; i++)
+    line(
+      ctx,
+      -0.11 + i * 0.02,
+      -0.18 - i * 0.14,
+      0.11 - i * 0.02,
+      -0.18 - i * 0.14,
+      "#c8a050",
+      0.03,
+    );
+  const charged = look.warn || look.active;
+  const pulse = charged
+    ? 0.75 + Math.sin(look.t * 30) * 0.25
+    : 0.35 + Math.sin(look.t * 3) * 0.1;
+  circle(
+    ctx,
+    0,
+    -0.66,
+    0.1,
+    look.disabled ? "#3a3a4a" : `rgba(150,200,255,${pulse})`,
+  );
+  if (charged && !look.disabled) {
+    ctx.save();
+    ctx.globalAlpha *= pulse;
+    for (let i = 0; i < 3; i++) {
+      const a = look.t * 9 + i * 2.1;
+      line(
+        ctx,
+        0,
+        -0.66,
+        Math.cos(a) * 0.22,
+        -0.66 + Math.sin(a) * 0.22,
+        "#dff0ff",
+        0.015,
+      );
+    }
+    ctx.restore();
+  }
 }
 
 export function drawSawBlade(ctx: C, t: number) {

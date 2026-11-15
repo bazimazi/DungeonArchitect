@@ -217,7 +217,11 @@ export function routeLength(l: Layout): number {
 }
 
 /** Procedural starting dungeon: bedrock frame, pillars, veins, a starter tunnel. */
-export function generateLayout(seed: number, biome: Biome["id"]): Layout {
+export function generateLayout(
+  seed: number,
+  biome: Biome["id"],
+  opts: { veins?: number; variant?: number } = {},
+): Layout {
   const rng = new Rng(seed);
   const b = BIOMES[biome];
   const w = MAP_W;
@@ -231,9 +235,16 @@ export function generateLayout(seed: number, biome: Biome["id"]): Layout {
     tiles[y * w] = T.Bedrock;
     tiles[y * w + w - 1] = T.Bedrock;
   }
-  const ex = 5;
+  // Deeper dungeons move the stairs and the hoard around.
+  let ex = 5;
+  let hx0 = 5;
+  if (opts.variant !== undefined) {
+    const v = new Rng((opts.variant ^ 0x3c6ef372) >>> 0);
+    ex = v.pick([3, 5, 7]);
+    hx0 = v.pick([3, 5, 7]);
+  }
   const entrance = { x: ex, y: 0 };
-  const hoard = { x: 5, y: h - 3 };
+  const hoard = { x: hx0, y: h - 3 };
   const l: Layout = { w, h, tiles, entrance, hoard, objects: [], nextId: 1 };
   const set = (x: number, y: number, t: number) => {
     if (x > 0 && y > 0 && x < w - 1 && y < h - 1) tiles[idx(l, x, y)] = t;
@@ -243,8 +254,10 @@ export function generateLayout(seed: number, biome: Biome["id"]): Layout {
   for (let y = hoard.y - 1; y <= hoard.y + 1; y++)
     for (let x = hoard.x - 1; x <= hoard.x + 1; x++) set(x, y, T.Floor);
   // Starter tunnel: down, jog sideways, down into a small hall, then to the hoard.
-  const side = rng.chance(0.5) ? -1 : 1;
-  const jx = ex + side * rng.int(2, 3);
+  let side = rng.chance(0.5) ? -1 : 1;
+  const jog = rng.int(2, 3);
+  if (ex + side * jog < 2 || ex + side * jog > w - 3) side = -side;
+  const jx = ex + side * jog;
   for (let y = 1; y <= 3; y++) set(ex, y, T.Floor);
   for (let x = Math.min(ex, jx); x <= Math.max(ex, jx); x++) set(x, 3, T.Floor);
   for (let y = 3; y <= 6; y++) set(jx, y, T.Floor);
@@ -267,7 +280,7 @@ export function generateLayout(seed: number, biome: Biome["id"]): Layout {
   };
   const cells = rng.shuffle(rockCells());
   let pillars = b.pillars;
-  let veins = b.veins;
+  let veins = Math.round(b.veins * (opts.veins ?? 1));
   for (const c of cells) {
     if (pillars > 0) {
       const x = c % w;

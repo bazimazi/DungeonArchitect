@@ -3,16 +3,26 @@ import { audio } from "../engine/audio";
 import {
   ARCHITECTS,
   BIOMES,
+  BIOME_IDS,
+  DEPTH_HEAT,
+  FEATS,
   HEROES,
-  INFAMY_TEXT,
+  HERO_COUNTER,
+  MUTATORS,
   NIGHTS,
   PIECES,
   POWERS,
   RELICS,
   UNLOCKS,
-  type ArchitectDef,
-  type Biome,
+  depthName,
+  isChampion,
+  rankFor,
+  roman,
+  type ArchitectId,
+  type BiomeId,
+  type FeatDef,
   type HeroClass,
+  type MutatorId,
   type PieceId,
 } from "../game/defs";
 import type { Profile } from "../game/profile";
@@ -22,7 +32,14 @@ import {
   unlockedBiomes,
   unlockedPieces,
 } from "../game/profile";
-import type { Card, NightRecord, RunState } from "../game/run";
+import {
+  depthInfo,
+  pieceCost,
+  runTitle,
+  type Card,
+  type NightRecord,
+  type RunState,
+} from "../game/run";
 import type { RaidResult } from "../game/sim";
 import { fmt, h, heroArt, icon, pieceArt } from "./dom";
 
@@ -111,13 +128,27 @@ export interface TitleOpts {
   onDaily(): void;
   onWorkshop(): void;
   onCodex(): void;
+  onFeats(): void;
   onSettings(): void;
 }
 export function titleScreen(o: TitleOpts) {
   const p = o.profile;
   const nu = nextUnlock(p);
-  const prevAt = [...UNLOCKS].reverse().find((u) => u.at <= p.renown)?.at ?? 0;
-  const prog = nu ? (p.renown - prevAt) / (nu.at - prevAt) : 1;
+  const rank = rankFor(p.renown);
+  const prevAt = nu
+    ? ([...UNLOCKS].reverse().find((u) => u.at <= p.renown)?.at ?? 0)
+    : rank.prev;
+  const goal = nu ? nu.at : rank.next;
+  const prog = Math.max(0, Math.min(1, (p.renown - prevAt) / (goal - prevAt)));
+  const runSub = (r: RunState) =>
+    r.daily
+      ? `Daily · Night ${r.night}`
+      : r.night > NIGHTS
+        ? `Abyss night ${r.night} · Depth ${r.depth}`
+        : `Night ${r.night} of ${NIGHTS} · Depth ${r.depth}`;
+  const records: string[] = [];
+  if (p.bestDepth > 0) records.push(`Deepest conquest: depth ${p.bestDepth}`);
+  if (p.bestAbyss > 0) records.push(`Abyss record: night ${p.bestAbyss}`);
   return h(
     "div",
     { class: "title-screen" },
@@ -142,13 +173,7 @@ export function titleScreen(o: TitleOpts) {
               "span",
               {},
               h("b", {}, "Continue"),
-              h(
-                "small",
-                {},
-                o.run.daily
-                  ? `Daily · Night ${o.run.night}`
-                  : `Night ${o.run.night} of ${NIGHTS} · ${BIOMES[o.run.biome].name}`,
-              ),
+              h("small", {}, runSub(o.run)),
             ),
             o.onContinue,
             "btn primary big",
@@ -159,7 +184,13 @@ export function titleScreen(o: TitleOpts) {
           "span",
           {},
           h("b", {}, "New Descent"),
-          h("small", {}, "A run of ten nights"),
+          h(
+            "small",
+            {},
+            p.maxDepth > 1
+              ? `Depths 1–${p.maxDepth} open · ten nights each`
+              : "A run of ten nights",
+          ),
         ),
         o.onNew,
         o.run ? "btn big" : "btn primary big",
@@ -192,8 +223,18 @@ export function titleScreen(o: TitleOpts) {
       ),
       h(
         "div",
-        { class: "row2 small" },
+        { class: "row3 small" },
         btn(h("span", {}, icon("book"), " Codex"), o.onCodex, "btn ghost"),
+        btn(
+          h(
+            "span",
+            {},
+            icon("trophy"),
+            ` Feats ${p.feats.length}/${FEATS.length}`,
+          ),
+          o.onFeats,
+          "btn ghost",
+        ),
         btn(
           h("span", {}, icon("menu"), " Settings"),
           o.onSettings,
@@ -207,45 +248,139 @@ export function titleScreen(o: TitleOpts) {
       h(
         "div",
         { class: "renown-top" },
-        h("span", {}, icon("star", "ic tiny"), ` Renown ${fmt(p.renown)}`),
+        h(
+          "span",
+          {},
+          icon("star", "ic tiny"),
+          ` ${rank.title} · ${fmt(p.renown)} renown`,
+        ),
         nu
           ? h("span", { class: "next" }, `Next: ${nu.label} at ${nu.at}`)
-          : h("span", { class: "next" }, "Everything unlocked"),
+          : h("span", { class: "next" }, `Next rank at ${fmt(rank.next)}`),
       ),
       h(
         "div",
         { class: "bar" },
         h("i", { style: `width:${Math.round(prog * 100)}%` }),
       ),
+      records.length
+        ? h("div", { class: "records" }, records.join(" · "))
+        : null,
     ),
   );
 }
 
 // ---------------- Run setup ----------------
+export interface SetupChoice {
+  biome: BiomeId;
+  architect: ArchitectId;
+  depth: number;
+}
 export function setupScreen(
   profile: Profile,
-  onStart: (o: {
-    biome: Biome["id"];
-    architect: ArchitectDef["id"];
-    infamy: number;
-  }) => void,
+  onStart: (o: SetupChoice) => void,
   onBack: () => void,
 ) {
   const biomes = unlockedBiomes(profile);
   const archs = unlockedArchitects(profile);
-  let biome: Biome["id"] = biomes[biomes.length - 1];
-  let arch: ArchitectDef["id"] = "mason";
-  let infamy = profile.maxInfamy;
+  let biome: BiomeId = biomes[biomes.length - 1];
+  let arch: ArchitectId = "mason";
+  let depth = profile.maxDepth;
   const root = h("div", { class: "panel setup" });
   const render = () => {
+    const info = depthInfo(depth);
+    const heat = DEPTH_HEAT.slice(2, Math.min(depth, 8) + 1).filter(Boolean);
+    if (depth > 8)
+      heat.push(
+        `Beyond depth 8, heroes grow ${7 * (depth - 8)}% tougher and parties larger.`,
+      );
     root.replaceChildren(
       h("h2", {}, "New Descent"),
+      h("h3", {}, "Depth"),
+      h(
+        "div",
+        { class: "depth-card" },
+        h(
+          "div",
+          { class: "stepper" },
+          btn(
+            "−",
+            () => {
+              depth = Math.max(1, depth - 1);
+              render();
+            },
+            "btn small",
+            {
+              "aria-label": "Shallower",
+              ...(depth <= 1 ? { disabled: "" } : {}),
+            },
+          ),
+          h("b", { class: "depth-num" }, String(depth)),
+          btn(
+            "+",
+            () => {
+              depth = Math.min(profile.maxDepth, depth + 1);
+              render();
+            },
+            "btn small",
+            {
+              "aria-label": "Deeper",
+              ...(depth >= profile.maxDepth ? { disabled: "" } : {}),
+            },
+          ),
+        ),
+        h(
+          "div",
+          { class: "depth-info" },
+          h("b", {}, info.name),
+          h(
+            "div",
+            { class: "boss-line" },
+            heroArt(info.boss, 34),
+            h(
+              "span",
+              {},
+              h("small", {}, "Night 10 champion"),
+              HEROES[info.boss].name,
+            ),
+          ),
+          info.mutators.length
+            ? h(
+                "div",
+                { class: "mut-list" },
+                ...info.mutators.map((m) =>
+                  h(
+                    "span",
+                    {
+                      class: `mut${MUTATORS[m].good ? " good" : ""}`,
+                      title: MUTATORS[m].text,
+                    },
+                    h("b", {}, MUTATORS[m].name),
+                    " ",
+                    MUTATORS[m].text,
+                  ),
+                ),
+              )
+            : h("p", { class: "muted" }, "No twists. A fair fight."),
+          heat.length ? h("p", { class: "heat" }, heat.join(" ")) : null,
+          depth === profile.maxDepth && profile.maxDepth > 1
+            ? h(
+                "p",
+                { class: "frontier" },
+                "Your frontier: conquer it to go deeper.",
+              )
+            : depth === 1 && profile.maxDepth === 1
+              ? h("p", { class: "muted" }, "Win to unlock depth 2.")
+              : null,
+        ),
+      ),
       h("h3", {}, "Architect"),
       h(
         "div",
-        { class: "choice-row" },
+        { class: "choice-row scroll" },
         ...ARCHITECTS.map((a) => {
           const locked = !archs.includes(a.id);
+          const won = profile.archWins.includes(a.id);
           return h(
             "button",
             {
@@ -257,7 +392,14 @@ export function setupScreen(
                 render();
               },
             },
-            h("b", {}, a.name),
+            h(
+              "b",
+              {},
+              a.name,
+              won
+                ? h("span", { class: "won", title: "Has won a descent" }, " ★")
+                : "",
+            ),
             h("small", {}, a.title),
             h("p", {}, locked ? `Unlocks at ${a.unlockRenown} renown` : a.text),
             locked
@@ -270,11 +412,11 @@ export function setupScreen(
           );
         }),
       ),
-      h("h3", {}, "Depths"),
+      h("h3", {}, "Biome"),
       h(
         "div",
-        { class: "choice-row" },
-        ...(Object.keys(BIOMES) as Biome["id"][]).map((id) => {
+        { class: "choice-row scroll" },
+        ...BIOME_IDS.map((id) => {
           const locked = !biomes.includes(id);
           const b = BIOMES[id];
           return h(
@@ -293,48 +435,13 @@ export function setupScreen(
           );
         }),
       ),
-      profile.maxInfamy > 0
-        ? h(
-            "div",
-            { class: "infamy" },
-            h("h3", {}, "Infamy"),
-            h(
-              "div",
-              { class: "stepper" },
-              btn(
-                "−",
-                () => {
-                  infamy = Math.max(0, infamy - 1);
-                  render();
-                },
-                "btn small",
-              ),
-              h("b", {}, String(infamy)),
-              btn(
-                "+",
-                () => {
-                  infamy = Math.min(profile.maxInfamy, infamy + 1);
-                  render();
-                },
-                "btn small",
-              ),
-            ),
-            h(
-              "p",
-              {},
-              infamy === 0
-                ? "Standard difficulty."
-                : INFAMY_TEXT.slice(1, infamy + 1).join(" "),
-            ),
-          )
-        : "",
       h(
         "div",
         { class: "actions" },
         btn("Back", onBack, "btn ghost"),
         btn(
           h("b", {}, "Descend"),
-          () => onStart({ biome, architect: arch, infamy }),
+          () => onStart({ biome, architect: arch, depth }),
           "btn primary",
         ),
       ),
@@ -351,10 +458,13 @@ export function resultsScreen(o: {
   stars: number;
   stolen: number;
   income: number;
+  interest: number;
   heroes: number;
   onContinue(): void;
   final: boolean;
   deadliest: string | null;
+  feats: FeatDef[];
+  unlocked: string[];
 }) {
   const starEls = [0, 1, 2].map((i) =>
     h("span", { class: `star s${i}` }, icon("star")),
@@ -366,13 +476,18 @@ export function resultsScreen(o: {
     ["Bounties", `+${o.result.gold}`],
     ["Dawn tribute", `+${o.income}`],
   ];
+  if (o.interest) rows.push(["Treasury interest", `+${o.interest}`]);
   if (o.result.bestCombo > 1)
     rows.push(["Best combo", `${o.result.bestCombo}×`]);
   if (o.deadliest) rows.push(["Deadliest", o.deadliest]);
   const root = h(
     "div",
     { class: "panel results" },
-    h("small", { class: "kicker" }, `Night ${o.night}`),
+    h(
+      "small",
+      { class: "kicker" },
+      o.night > NIGHTS ? `Abyss · Night ${o.night}` : `Night ${o.night}`,
+    ),
     h(
       "h2",
       {},
@@ -393,6 +508,8 @@ export function resultsScreen(o: {
         h("div", { class: "row" }, h("span", {}, k), h("b", {}, v)),
       ),
     ),
+    o.feats.length ? featList(o.feats) : null,
+    o.unlocked.length ? unlockList(o.unlocked) : null,
     h(
       "div",
       { class: "actions" },
@@ -422,14 +539,41 @@ export function resultsScreen(o: {
   return root;
 }
 
+function unlockList(items: string[]) {
+  return h(
+    "div",
+    { class: "unlocks chips" },
+    h("h3", {}, "Unlocked"),
+    ...items.map((u) =>
+      h("div", { class: "unlock" }, icon("star", "ic tiny"), u),
+    ),
+  );
+}
+function featList(feats: FeatDef[]) {
+  return h(
+    "div",
+    { class: "unlocks feats-earned" },
+    h("h3", {}, feats.length > 1 ? "Feats earned" : "Feat earned"),
+    ...feats.map((f) =>
+      h(
+        "div",
+        { class: "unlock" },
+        icon("trophy", "ic tiny"),
+        h("b", {}, f.name),
+        h("small", {}, ` +${f.renown} renown`),
+      ),
+    ),
+  );
+}
+
 // ---------------- Draft ----------------
 export function cardEl(c: Card, run: RunState) {
   if (c.type === "relic") {
     const r = RELICS[c.id];
     return h(
       "div",
-      { class: "card relic" },
-      h("small", {}, "Relic"),
+      { class: `card relic r-${r.rarity}` },
+      h("small", {}, r.rarity === "common" ? "Relic" : `${r.rarity} relic`),
       h("div", { class: "card-art" }, icon("relic", "ic huge")),
       h("b", {}, r.name),
       h("p", {}, r.text),
@@ -446,9 +590,9 @@ export function cardEl(c: Card, run: RunState) {
         "div",
         { class: "card-art" },
         pieceArt(c.id, 84),
-        h("span", { class: "tier-badge" }, "I".repeat(t)),
+        h("span", { class: "tier-badge" }, roman(t)),
       ),
-      h("b", {}, `${def.name} ${"I".repeat(t)}`),
+      h("b", {}, `${def.name} ${roman(t)}`),
       h("p", {}, `+40% power for every ${def.name}.`),
     );
   }
@@ -464,7 +608,7 @@ export function cardEl(c: Card, run: RunState) {
       "span",
       { class: "card-cost" },
       icon("coin", "ic tiny"),
-      String(def.cost),
+      String(pieceCost(run, c.id)),
     ),
   );
 }
@@ -472,6 +616,7 @@ export function draftScreen(
   cards: Card[],
   run: RunState,
   onPick: (c: Card | null) => void,
+  reroll: { cost: number; onReroll(): void } | null = null,
 ) {
   let picked = false;
   const root = h(
@@ -503,14 +648,35 @@ export function draftScreen(
         return el;
       }),
     ),
-    btn(
-      "Skip  (+15 gold)",
-      () => {
-        if (picked) return;
-        picked = true;
-        onPick(null);
-      },
-      "btn ghost",
+    h(
+      "div",
+      { class: "draft-actions" },
+      reroll
+        ? btn(
+            h(
+              "span",
+              {},
+              icon("reroll", "ic tiny"),
+              ` Reroll (${reroll.cost} gold)`,
+            ),
+            () => {
+              if (picked || run.gold < reroll.cost) return;
+              picked = true;
+              reroll.onReroll();
+            },
+            `btn ghost${run.gold < reroll.cost ? " disabled" : ""}`,
+            run.gold < reroll.cost ? { disabled: "" } : {},
+          )
+        : null,
+      btn(
+        "Skip  (+15 gold)",
+        () => {
+          if (picked) return;
+          picked = true;
+          onPick(null);
+        },
+        "btn ghost",
+      ),
     ),
   );
   return root;
@@ -521,38 +687,51 @@ export function gameOverScreen(o: {
   run: RunState;
   renown: number;
   unlocked: string[];
+  feats: FeatDef[];
+  newDepth: number | null;
   onMenu(): void;
   onAgain(): void;
   onShare(): void;
+  onAbyss: (() => void) | null;
   dailyText: string | null;
 }) {
-  const won = !!o.run.victory;
-  const stars = o.run.history.reduce((a, r) => a + r.stars, 0);
-  const kills = o.run.history.reduce((a, r) => a + r.killed, 0);
+  const run = o.run;
+  const won = !!run.victory;
+  const abyss = run.endless;
+  const descent = run.history.filter((r) => r.night <= NIGHTS);
+  const stars = descent.reduce((a, r) => a + r.stars, 0);
+  const kills = run.history.reduce((a, r) => a + r.killed, 0);
+  const lastNight = run.history.length
+    ? run.history[run.history.length - 1].night
+    : run.night;
+  const title = abyss
+    ? "Swallowed by the Abyss"
+    : won
+      ? "The Hoard Endures"
+      : "The Hoard Is Plundered";
+  const sub = abyss
+    ? `You held the abyss until night ${lastNight}. The deep remembers.`
+    : won
+      ? `${HEROES[run.boss].name} lies among the bones. Bards will whisper your name.`
+      : `You held for ${descent.length} night${descent.length === 1 ? "" : "s"}. The dark remembers.`;
   return h(
     "div",
-    { class: `panel gameover ${won ? "won" : "lost"}` },
+    { class: `panel gameover ${won || abyss ? "won" : "lost"}` },
     h(
       "small",
       { class: "kicker" },
-      o.run.daily ? `Daily ${o.run.daily}` : BIOMES[o.run.biome].name,
+      run.daily ? `Daily ${run.daily}` : runTitle(run),
     ),
-    h("h2", {}, won ? "The Hoard Endures" : "The Hoard Is Plundered"),
-    h(
-      "p",
-      { class: "sub" },
-      won
-        ? "Sir Aldric lies among the bones. Bards will whisper your name."
-        : `You held for ${o.run.history.length} night${o.run.history.length === 1 ? "" : "s"}. The dark remembers.`,
-    ),
+    h("h2", {}, title),
+    h("p", { class: "sub" }, sub),
     h(
       "div",
       { class: "night-strip" },
-      ...o.run.history.map((r: NightRecord) =>
+      ...run.history.map((r: NightRecord) =>
         h(
           "span",
           {
-            class: `n s${r.stars}`,
+            class: `n s${r.stars}${r.night > NIGHTS ? " abyss" : ""}`,
             title: `Night ${r.night}: ${r.stars} stars`,
           },
           String(r.night),
@@ -566,7 +745,7 @@ export function gameOverScreen(o: {
         "div",
         { class: "row" },
         h("span", {}, "Stars"),
-        h("b", {}, String(stars)),
+        h("b", {}, `${stars} / ${NIGHTS * 3}`),
       ),
       h(
         "div",
@@ -574,6 +753,14 @@ export function gameOverScreen(o: {
         h("span", {}, "Heroes slain"),
         h("b", {}, String(kills)),
       ),
+      abyss
+        ? h(
+            "div",
+            { class: "row" },
+            h("span", {}, "Deepest abyss night"),
+            h("b", {}, String(lastNight)),
+          )
+        : null,
       h(
         "div",
         { class: "row big" },
@@ -581,17 +768,43 @@ export function gameOverScreen(o: {
         h("b", {}, `+${o.renown}`),
       ),
     ),
-    o.unlocked.length
+    o.newDepth
       ? h(
           "div",
-          { class: "unlocks" },
-          h("h3", {}, "Unlocked"),
-          ...o.unlocked.map((u) =>
-            h("div", { class: "unlock" }, icon("star", "ic tiny"), u),
+          { class: "new-depth" },
+          icon("abyss", "ic"),
+          h(
+            "span",
+            {},
+            h("b", {}, `Depth ${o.newDepth} unlocked`),
+            h("small", {}, depthName(o.newDepth)),
           ),
         )
       : null,
+    o.feats.length ? featList(o.feats) : null,
+    o.unlocked.length ? unlockList(o.unlocked) : null,
     o.dailyText ? h("pre", { class: "daily-share" }, o.dailyText) : null,
+    o.onAbyss
+      ? h(
+          "div",
+          { class: "abyss-offer" },
+          h(
+            "p",
+            {},
+            "Your victory is banked. The abyss below never ends: harder every night, a champion every fifth. How deep can your dungeon go?",
+          ),
+          btn(
+            h(
+              "span",
+              {},
+              icon("abyss", "ic tiny"),
+              h("b", {}, " Delve into the Abyss"),
+            ),
+            o.onAbyss,
+            "btn abyss-btn",
+          ),
+        )
+      : null,
     h(
       "div",
       { class: "actions" },
@@ -599,9 +812,58 @@ export function gameOverScreen(o: {
       o.dailyText
         ? btn(h("span", {}, icon("share"), " Share"), o.onShare, "btn")
         : btn(h("span", {}, icon("share"), " Share dungeon"), o.onShare, "btn"),
-      o.run.daily
+      run.daily
         ? null
         : btn(h("b", {}, "Descend again"), o.onAgain, "btn primary"),
+    ),
+  );
+}
+
+// ---------------- Feats ----------------
+export function featsScreen(p: Profile, onClose: () => void) {
+  const done = FEATS.filter((f) => p.feats.includes(f.id)).length;
+  return h(
+    "div",
+    { class: "panel feats" },
+    h(
+      "div",
+      { class: "codex-head" },
+      h("h2", {}, `Feats ${done}/${FEATS.length}`),
+      h(
+        "button",
+        { class: "icon-btn", "aria-label": "Close", onclick: onClose },
+        icon("close"),
+      ),
+    ),
+    h(
+      "div",
+      { class: "feat-list" },
+      ...FEATS.map((f) => {
+        const got = p.feats.includes(f.id);
+        const progress =
+          !got && f.stat && f.goal
+            ? Math.min(1, p.stats[f.stat] / f.goal)
+            : null;
+        return h(
+          "div",
+          { class: `feat${got ? " got" : ""}` },
+          icon("trophy", "ic"),
+          h(
+            "span",
+            { class: "feat-text" },
+            h("b", {}, f.name),
+            h("small", {}, f.text),
+            progress !== null
+              ? h(
+                  "span",
+                  { class: "bar" },
+                  h("i", { style: `width:${Math.round(progress * 100)}%` }),
+                )
+              : null,
+          ),
+          h("span", { class: "feat-reward" }, got ? "✓" : `+${f.renown}`),
+        );
+      }),
     ),
   );
 }
@@ -744,9 +1006,9 @@ export function codexScreen(p: Profile, onClose: () => void) {
         ? show(
             heroArt(c, 84),
             HEROES[c].name,
-            "Hero",
+            isChampion(c) ? "Champion" : "Hero",
             HEROES[c].rule,
-            `Health ${HEROES[c].hp} · Bounty ${HEROES[c].bounty} gold`,
+            `Counter: ${HERO_COUNTER[c]} · Health ${HEROES[c].hp} · Bounty ${HEROES[c].bounty}`,
           )
         : show(
             h("span", { class: "q" }, "?"),
@@ -784,21 +1046,38 @@ export function codexScreen(p: Profile, onClose: () => void) {
     return b;
   });
   const relics = Object.values(RELICS).map((r) => {
-    const b = h("button", { class: "cx relic" }, icon("relic", "ic"));
+    const b = h(
+      "button",
+      { class: `cx relic r-${r.rarity}`, "aria-label": r.name },
+      icon("relic", "ic"),
+    );
     b.addEventListener("click", () =>
-      show(icon("relic", "ic huge"), r.name, "Relic", r.text),
+      show(icon("relic", "ic huge"), r.name, `${r.rarity} relic`, r.text),
+    );
+    return b;
+  });
+  const mutators = (Object.keys(MUTATORS) as MutatorId[]).map((id) => {
+    const m = MUTATORS[id];
+    const b = h(
+      "button",
+      { class: `cx mutx${m.good ? " good" : ""}`, "aria-label": m.name },
+      m.name,
+    );
+    b.addEventListener("click", () =>
+      show(
+        icon("abyss", "ic huge"),
+        m.name,
+        `${m.good ? "Blessing" : "Twist"} · from depth ${m.from}`,
+        m.text,
+      ),
     );
     return b;
   });
   const powers = Object.values(POWERS).map((pw) => {
-    const b = h(
-      "button",
-      { class: "cx" },
-      icon(pw.id === "rockfall" ? "rock" : "shriek", "ic"),
-    );
+    const b = h("button", { class: "cx" }, icon(powerIcon(pw.id), "ic"));
     b.addEventListener("click", () =>
       show(
-        icon(pw.id === "rockfall" ? "rock" : "shriek", "ic huge"),
+        icon(powerIcon(pw.id), "ic huge"),
         pw.name,
         `Power · ${pw.cost} dread`,
         pw.text,
@@ -831,6 +1110,8 @@ export function codexScreen(p: Profile, onClose: () => void) {
       h("div", { class: "cx-grid" }, ...powers),
       h("h3", {}, "Relics"),
       h("div", { class: "cx-grid" }, ...relics),
+      h("h3", {}, "Dungeon twists"),
+      h("div", { class: "cx-grid wide" }, ...mutators),
     ),
     h(
       "div",
@@ -839,6 +1120,8 @@ export function codexScreen(p: Profile, onClose: () => void) {
       h("span", {}, `Victories ${p.wins}`),
       h("span", {}, `Heroes slain ${fmt(p.kills)}`),
       h("span", {}, `Best combo ${p.bestCombo}×`),
+      h("span", {}, `Deepest depth ${p.bestDepth}`),
+      h("span", {}, `Abyss record ${p.bestAbyss || "–"}`),
     ),
   );
 }
@@ -1035,3 +1318,6 @@ export function messageScreen(
     ),
   );
 }
+
+export const powerIcon = (id: string) =>
+  id === "rockfall" ? "rock" : id === "chill" ? "chill" : "shriek";

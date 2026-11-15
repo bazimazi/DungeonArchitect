@@ -3,9 +3,11 @@
  * dungeon travels inside the URL hash: #raid=<base64url>.
  */
 import {
+  BIOME_IDS,
   MAP_H,
   MAP_W,
   PIECES,
+  RULES_COMPAT,
   RULES_VERSION,
   T,
   type Biome,
@@ -43,7 +45,6 @@ function validLayout(l: Layout) {
 }
 
 const KINDS = Object.keys(PIECES) as PieceId[];
-const BIOME_IDS: Biome["id"][] = ["crypt", "grotto", "forge"];
 
 export interface SharedDungeon {
   name: string;
@@ -117,7 +118,7 @@ export function decodeDungeon(code: string): SharedDungeon | null {
       return b[p++];
     };
     const version = r();
-    if (version !== RULES_VERSION) return null;
+    if (!RULES_COMPAT.includes(version)) return null;
     const biome = BIOME_IDS[r()] ?? "crypt";
     const w = r();
     const h = r();
@@ -146,7 +147,7 @@ export function decodeDungeon(code: string): SharedDungeon | null {
     for (let i = 0; i < tc; i++) {
       const k = KINDS[r()];
       const v = r();
-      if (k) tiers[k] = Math.min(3, Math.max(1, v));
+      if (k) tiers[k] = Math.min(5, Math.max(1, v));
     }
     const len = r();
     const name = new TextDecoder().decode(b.slice(p, p + len));
