@@ -2,10 +2,10 @@
   "appId": "com.bazimazi.dungeonarchitect",
   "appName": "Dungeon Architect",
   "webDir": "dist",
-  "backgroundColor": "#111a18",
-  "android": { "backgroundColor": "#111a18" },
+  "backgroundColor": "#07050b",
+  "android": { "backgroundColor": "#07050b" },
   "ios": {
-    "backgroundColor": "#111a18",
+    "backgroundColor": "#07050b",
     "contentInset": "always",
     "preferredContentMode": "mobile"
   }

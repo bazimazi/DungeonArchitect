@@ -1,64 +1,73 @@
 # Dungeon Architect
 
-A mobile-first dungeon builder with deterministic adventures, online publishing, verified replays, and tools for improving a dungeon from player feedback. TypeScript, Canvas 2D, Fastify, SQLite, and Capacitor.
+Build a dungeon of traps and monsters, then watch greedy heroes try to rob it.
 
-## Run locally
+Dungeon Architect is a roguelite dungeon-defense game. Each run lasts ten nights. Every night you dig tunnels, place traps and monsters, and see the party that's coming. Then night falls, and the heroes march on your hoard. After each raid you pick one of three boons. You win if your hoard survives the champion on night ten.
 
-Requires Node.js 24 or newer:
+It runs in any modern browser, works offline after the first visit, and ships as Android and iOS apps via Capacitor. There is no server: dungeons are shared as links.
+
+## Play
 
 ```sh
 npm ci
-npm run build
-npm run server
+npm run dev        # http://localhost:5173
 ```
 
-Open **http://127.0.0.1:5187**. Register from **Community > Profile**. The database is saved in `data/dungeon-architect.sqlite`. Set `PORT` and `ALLOWED_ORIGINS` together if that port is occupied.
+|                        | Mouse / keyboard                                              | Touch                          |
+| ---------------------- | ------------------------------------------------------------- | ------------------------------ |
+| Pick a piece           | Click the tray, or keys `1`–`9`; `D` for dig                  | Tap the tray                   |
+| Place / dig / fill     | Click a tile; drag to dig or fill a line                      | Tap; drag                      |
+| Select / rotate / sell | Click a piece; `R` rotates; `Delete` sells; right-click sells | Tap a piece, then use its card |
+| Undo                   | `Ctrl/Cmd+Z`                                                  | Undo button                    |
+| Start the night        | `Enter`                                                       | Begin Night                    |
+| Raid                   | `Space` pauses; `F` changes speed; `Q`/`W` use powers         | Buttons                        |
+| Camera                 | Wheel zooms; drag pans                                        | Pinch; drag                    |
 
-For development, leave the server running and use `npm run dev` in another terminal. Vite defaults to port 5173 and proxies the API to 5187; `DUNGEON_API_URL` overrides that target. Server variables are read from the process; `.env.example` is documentation, not an automatically loaded configuration file.
+## Modes
 
-## Build, play, improve
+- **Descent:** the ten-night run. Earns renown, which unlocks pieces, architects, biomes and a power.
+- **Daily:** the same seeded run for everyone each UTC day, with a shareable result line.
+- **Workshop:** unlimited gold and every unlocked piece. Test against any night's party and share your dungeon as a link.
+- **Raid links:** opening `#raid=…` lets you assemble a hero party and try to rob a friend's dungeon.
 
-1. Start with Mossveil Crypt, New dungeon, a template, or First steps.
-2. Carve rooms; place encounters, an entrance, and treasure within the construction budget.
-3. Validate and personally complete Test dungeon. Editing invalidates the proof.
-4. Publish dungeon creates a local version; Publish online uploads after independent server verification.
-5. Invite six labeled simulated adventurers locally, or let another account discover and play online.
-6. Inspect replays, traffic, deaths, routes, and completion statistics. Edit, retest, and republish.
-
-Offline editing/testing requires no account. Open the production website once to cache its assets for offline reloads. Browser saves belong to their origin/profile. Local limits: 100 versions, 180 published attempts, 20 personal tests, and 10 recoverable drafts. JSON export, recovery, and cloud drafts provide additional copies.
-
-## Controls
-
-| Area      | Controls                                                                                                                                   |
-| --------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| Editor    | Tap/click to place; drag to paint; Select for objects; Shift-click for multiple selection; right-click to erase                            |
-| Touch     | Pinch zoom, two-finger pan, long-press actions; bottom construction tray                                                                   |
-| Keyboard  | Canvas arrows/Enter; Ctrl/Cmd+Z undo, Shift+Z redo; Ctrl/Cmd+C/V copy/paste; R rotate; Delete remove; I describes the tile or surroundings |
-| Adventure | WASD/arrows or direction pad; bump enemies to attack; Space attacks; E waits; Interact and Ability buttons                                 |
-| Camera    | Zoom/Fit; Alt-drag or middle-drag; Follow adventurer or Floor overview                                                                     |
-| Replay    | Pause, seek, restart, 0.5x/1x/2x/4x, event/death jumps                                                                                     |
-
-## Implemented systems
-
-Four connected floors, 76 object types, eight themes, five normalized adventurer builds, configurable monsters/bosses, environmental interactions, event/condition/action logic, NPC quests and resources, eight templates, and optional collect-and-exit objectives. The editor includes transactional history, wiring-preserving duplication, patrol-aware transforms, and layers.
-
-Community features include accounts, discovery, profiles, follows/favorites, QR/share codes, friend challenges, leaderboards, progression, earned cosmetics, rotating challenges, moderation, cloud drafts, shared revision-checked workshops, branching campaigns, and guild world collections. Online results and rewards are server verified. Profile preferences can favor difficulty and session length, or adapt to distinct adventures.
-
-## Verify and package
+## Develop
 
 ```sh
-npx playwright install chromium
-npm run check
-npm run benchmark
-npm run native:sync
+npm test                    # unit tests (simulation, run logic, link codec)
+npm run test:e2e            # production build + Playwright (desktop and mobile)
+npm run build               # type-check, bundle, generate the offline cache
+BALANCE=1 npx vitest run tests/balance.test.ts   # difficulty curve report
 ```
 
-Android requires Java 21 and the Android SDK through JAVA_HOME/ANDROID_HOME. Run `npm run android:debug`; output: `android/app/build/outputs/apk/debug/app-debug.apk`. The API 36 emulator smoke flow covers completion, publication, six simulated attempts, and replay seeking. iOS sources are generated; compilation requires Xcode on macOS.
+### Layout
 
-Set `VITE_API_URL` to an HTTPS community host before building a connected native package. Without it, the native workshop works offline. Native authentication currently lasts for the app process. Custom invitation links use the dungeonarchitect scheme; HTTPS universal links need release-domain association files.
+- `src/game`: the rules, all deterministic and DOM-free.
+  - `defs.ts`: data and tuning.
+  - `grid.ts`: maps, pathfinding and line of sight.
+  - `sim.ts`: the raid simulation.
+  - `run.ts`: nights, economy and drafts.
+  - `share.ts`: link codec.
+  - `profile.ts`: saves.
+- `src/render`: the Canvas renderer.
+  - `world.ts`: terrain cache, lighting, actors and telegraphs.
+  - `sprites.ts`: procedural art.
+  - `fx.ts`: particles and floating text.
+- `src/engine`: seeded RNG, easing and noise (`math.ts`), and the synthesized audio and music (`audio.ts`).
+- `src/ui`: the DOM HUD and the screens.
+- `src/app.ts`: the game controller (loop, input, state machine, and the glue from simulation events to effects).
 
-## Release status
+The simulation runs at a fixed 20 Hz and uses only IEEE-exact arithmetic. Identical inputs replay identically on any device, which is what makes daily runs and shared raids fair. The renderer interpolates between ticks and never feeds anything back into the simulation.
 
-This is an extensively implemented, locally verified game, **not a claim that the entire product vision is finished or released**. Public hosting/CDN, signing/store release, physical Android/iOS validation, and audience-dependent balance/retention targets remain unverified. Structural checks and a completion proof do not exhaustively prove every possible puzzle state avoids softlocks. Shared editing uses optimistic revisions, not simultaneous cursor synchronization.
+See [docs/DESIGN.md](docs/DESIGN.md) for the design pillars, systems and research notes. The original brief is kept for reference in [docs/GAME_DESIGN.md](docs/GAME_DESIGN.md).
 
-See the [100-section audit](docs/IMPLEMENTATION_STATUS.md), [architecture](docs/ARCHITECTURE.md), [operations](docs/OPERATIONS.md), and unmodified [original design](docs/GAME_DESIGN.md).
+### Native apps
+
+```sh
+npm run native:sync      # build and copy into android/ and ios/
+npm run android:debug    # needs Java 21 and the Android SDK
+npm run native:ios       # opens Xcode (macOS)
+```
+
+## Deploy
+
+Pushing to `main` builds `dist/` and deploys it as static files (see `.github/workflows/deploy.yml`).

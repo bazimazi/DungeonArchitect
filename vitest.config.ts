@@ -1,3 +1,6 @@
 import { defineConfig } from "vitest/config";
 
-export default defineConfig({ test: { include: ["tests/*.test.ts"] } });
+// Globals avoid a duplicate-module issue when test files import "vitest".
+export default defineConfig({
+  test: { include: ["tests/*.test.ts"], globals: true },
+});

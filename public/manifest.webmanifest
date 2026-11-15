@@ -1,11 +1,19 @@
 {
   "name": "Dungeon Architect",
   "short_name": "Dungeon Architect",
-  "description": "Build, test, and learn from your own dungeons.",
+  "description": "Build a dungeon of traps and monsters, then watch greedy heroes try to rob it.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
-  "background_color": "#111816",
-  "theme_color": "#151c1b",
-  "icons": [{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
+  "orientation": "any",
+  "background_color": "#07050b",
+  "theme_color": "#07050b",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
 }

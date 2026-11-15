@@ -1,14 +1,20 @@
 import "./ui/styles.css";
-import { App } from "./ui/app";
+import { Game } from "./app";
 import { Capacitor } from "@capacitor/core";
 import { App as NativeApp } from "@capacitor/app";
 
-const game = new App(document.querySelector<HTMLDivElement>("#app")!);
+const root = document.querySelector<HTMLDivElement>("#app")!;
+const game = new Game(root);
+(window as unknown as { game: Game }).game = game;
+
 if (Capacitor.isNativePlatform()) {
-  void NativeApp.addListener("appUrlOpen", ({ url }) => game.openInvite(url));
-  void NativeApp.getLaunchUrl().then((link) => {
-    if (link) game.openInvite(link.url);
-  });
+  // Dungeon links opened from other apps arrive as deep links.
+  const open = (url: string) => {
+    const hash = url.split("#")[1];
+    if (hash) location.hash = hash;
+  };
+  void NativeApp.addListener("appUrlOpen", ({ url }) => open(url));
+  void NativeApp.getLaunchUrl().then((link) => link && open(link.url));
 }
 
 if (
@@ -17,6 +23,6 @@ if (
   "serviceWorker" in navigator
 ) {
   void navigator.serviceWorker.register("./sw.js").catch(() => {
-    // The game remains playable when a browser disallows offline caching.
+    // The game still works online when offline caching is unavailable.
   });
 }
