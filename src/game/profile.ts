@@ -2,16 +2,22 @@
 import {
   BASE_POOL,
   FEATS,
+  FLOORPLANS,
+  NIGHTS,
+  REALM_SIZE,
   UNLOCKS,
+  heatOf,
+  realmOf,
   type ArchitectId,
   type BiomeId,
   type FeatDef,
+  type FloorplanId,
   type OmenId,
   type PieceId,
   type PowerId,
   type StatId,
 } from "./defs";
-import { migrateRun, type RunState } from "./run";
+import { migrateRun, planFor, type RunState } from "./run";
 
 export interface Settings {
   sfx: number;
@@ -54,6 +60,51 @@ export interface Profile {
   omens: OmenId[];
   /** Best stars per trial id. */
   trials: Record<string, number>;
+  /** Records per depth (keyed by depth number). */
+  depths: Record<string, DepthRecord>;
+  /** Floorplans a descent has been won on. */
+  planWins: FloorplanId[];
+}
+
+/** What a player has achieved on one depth. */
+export interface DepthRecord {
+  wins: number;
+  /** Bit mask of crowns (see CROWNS). */
+  crowns: number;
+  /** Most stars in a won descent (out of 30). */
+  bestStars: number;
+  /** Highest heat it was won at (-1: never won). */
+  bestHeat: number;
+}
+
+/** Three crowns per depth: conquer it, without losing treasure, and under omens. */
+export const CROWNS = [
+  {
+    bit: 1,
+    name: "Conquered",
+    text: "Win a descent at this depth.",
+    renown: 0,
+  },
+  {
+    bit: 2,
+    name: "Flawless",
+    text: "Win without losing a single treasure.",
+    renown: 4,
+  },
+  {
+    bit: 4,
+    name: "Ascendant",
+    text: "Win at heat 5 or more.",
+    renown: 6,
+  },
+] as const;
+export const ASCENDANT_HEAT = 5;
+export const crownCount = (mask: number) =>
+  (mask & 1) + ((mask >> 1) & 1) + ((mask >> 2) & 1);
+export function totalCrowns(p: Pick<Profile, "depths">) {
+  let n = 0;
+  for (const r of Object.values(p.depths)) n += crownCount(r?.crowns ?? 0);
+  return n;
 }
 
 const PROFILE_KEY = "da.profile.v1";
@@ -82,6 +133,8 @@ export function defaultProfile(): Profile {
       dailies: 0,
       trialStars: 0,
       abyssNights: 0,
+      encounters: 0,
+      crowns: 0,
     },
     feats: [],
     archWins: [],
@@ -97,6 +150,8 @@ export function defaultProfile(): Profile {
     bestHeat: -1,
     omens: [],
     trials: {},
+    depths: {},
+    planWins: [],
   };
 }
 
@@ -138,6 +193,8 @@ export function migrateProfile(raw: unknown): Profile {
     seen: Array.isArray(p.seen) ? p.seen : [],
     omens: Array.isArray(p.omens) ? p.omens : [],
     trials: p.trials && typeof p.trials === "object" ? p.trials : {},
+    depths: p.depths && typeof p.depths === "object" ? { ...p.depths } : {},
+    planWins: Array.isArray(p.planWins) ? p.planWins : [],
     bestHeat: typeof p.bestHeat === "number" ? p.bestHeat : p.wins ? 0 : -1,
   };
   // Trial stars are derived from the per-trial record.
@@ -162,8 +219,56 @@ export function migrateProfile(raw: unknown): Profile {
     awardStats(out);
   }
   out.maxDepth = Math.max(1, Math.floor(out.maxDepth || 1));
+  // Depths conquered before crowns existed keep their first crown.
+  for (let d = 1; d <= Math.min(out.bestDepth, 500); d++) {
+    const r = out.depths[d];
+    if (!r) out.depths[d] = { wins: 1, crowns: 1, bestStars: 0, bestHeat: 0 };
+  }
+  out.stats.crowns = totalCrowns(out);
   return out;
 }
+
+/**
+ * Record a won descent on the ladder: depth record, crowns and floorplans.
+ * Returns the crowns newly earned (renown for them is added to the profile).
+ */
+export function recordDepthWin(p: Profile, run: RunState) {
+  const d = run.depth;
+  const rec: DepthRecord = p.depths[d]
+    ? { ...p.depths[d] }
+    : { wins: 0, crowns: 0, bestStars: 0, bestHeat: -1 };
+  const descent = run.history.filter((h) => h.night <= NIGHTS);
+  const stars = descent.reduce((a, h) => a + h.stars, 0);
+  const heat = heatOf(run.omens ?? []);
+  let mask = 1;
+  if (descent.every((h) => h.stolen === 0)) mask |= 2;
+  if (heat >= ASCENDANT_HEAT) mask |= 4;
+  const fresh = CROWNS.filter((c) => mask & c.bit && !(rec.crowns & c.bit));
+  rec.wins++;
+  rec.crowns |= mask;
+  rec.bestStars = Math.max(rec.bestStars, stars);
+  rec.bestHeat = Math.max(rec.bestHeat, heat);
+  p.depths[d] = rec;
+  let renown = 0;
+  for (const c of fresh) renown += c.renown;
+  p.renown += renown;
+  p.stats.crowns = totalCrowns(p);
+  const plan = planFor(d);
+  if (!p.planWins.includes(plan)) p.planWins.push(plan);
+  return { crowns: fresh.map((c) => c.name), renown };
+}
+
+/** Every crown on every depth of the realm that holds `depth`. */
+export function realmSwept(p: Pick<Profile, "depths">, depth: number) {
+  const first = (realmOf(depth) - 1) * REALM_SIZE + 1;
+  for (let d = first; d < first + REALM_SIZE; d++)
+    if ((p.depths[d]?.crowns ?? 0) !== 7) return false;
+  return true;
+}
+export const allPlansWon = (p: Pick<Profile, "planWins">) =>
+  (Object.keys(FLOORPLANS) as FloorplanId[]).every((f) =>
+    p.planWins.includes(f),
+  );
 
 export function loadProfile(): Profile {
   return migrateProfile(read<unknown>(PROFILE_KEY));

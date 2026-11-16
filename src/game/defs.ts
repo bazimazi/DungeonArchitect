@@ -2,9 +2,9 @@
  * Game data. All tuning lives here so balance changes never touch systems.
  * Time values are in seconds; distances in tiles.
  */
-export const RULES_VERSION = 3;
+export const RULES_VERSION = 4;
 /** Older link versions that still decode (pieces only ever get appended). */
-export const RULES_COMPAT = [1, 2, 3];
+export const RULES_COMPAT = [1, 2, 3, 4];
 export const TICK = 0.05; // 20 simulation ticks per second
 export const MAP_W = 11;
 export const MAP_H = 15;
@@ -60,7 +60,9 @@ export type TrapId =
   | "keg"
   | "pylon"
   | "crusher"
-  | "totem";
+  | "totem"
+  | "beartrap"
+  | "lantern";
 export type MonsterId =
   | "skeleton"
   | "archer"
@@ -74,7 +76,9 @@ export type MonsterId =
   | "spider"
   | "golem"
   | "gargoyle"
-  | "wraith";
+  | "wraith"
+  | "basilisk"
+  | "kobold";
 export type PieceId = TrapId | MonsterId;
 export type HeroClass =
   | "knight"
@@ -94,7 +98,10 @@ export type HeroClass =
   | "warlord"
   | "thane"
   | "shade"
-  | "revenant";
+  | "revenant"
+  | "monk"
+  | "templar"
+  | "witch";
 
 /** Champions lead the final night of a descent and every fifth abyss night. */
 export const CHAMPIONS = [
@@ -104,6 +111,7 @@ export const CHAMPIONS = [
   "thane",
   "shade",
   "revenant",
+  "witch",
 ] as const;
 /** The three original champions, who lead ordinary depths. */
 export const CLASSIC_CHAMPIONS: ChampionId[] = [
@@ -112,7 +120,12 @@ export const CLASSIC_CHAMPIONS: ChampionId[] = [
   "warlord",
 ];
 /** Realm lords guard every fifth depth. */
-export const REALM_LORDS: ChampionId[] = ["thane", "shade", "revenant"];
+export const REALM_LORDS: ChampionId[] = [
+  "thane",
+  "shade",
+  "revenant",
+  "witch",
+];
 export type ChampionId = (typeof CHAMPIONS)[number];
 export const isChampion = (c: HeroClass): c is ChampionId =>
   (CHAMPIONS as readonly string[]).includes(c);
@@ -126,6 +139,7 @@ export const FEARLESS: HeroClass[] = [
   "thane",
   "shade",
   "revenant",
+  "witch",
 ];
 /** Classes too heavy to fling or knock back. */
 export const UNSHAKABLE: HeroClass[] = [
@@ -409,6 +423,42 @@ export const PIECES: Record<PieceId, PieceDef> = {
     combo: "Hide it in the rock beside a corridor.",
     color: "#7fd0c0",
   },
+  beartrap: {
+    id: "beartrap",
+    name: "Bear Trap",
+    kind: "trap",
+    cost: 14,
+    rule: "Snaps shut: 26 damage, and holds a hero in place for 2.5s.",
+    combo: "Hold them under a crusher or in a flame lane.",
+    color: "#9a8a7a",
+  },
+  lantern: {
+    id: "lantern",
+    name: "Soul Lantern",
+    kind: "trap",
+    cost: 26,
+    rule: "Heroes slain within 2 tiles pay 60% more bounty and 2 dread.",
+    combo: "Hang it over your killing floor. Upgrades raise the bounty.",
+    color: "#7ae0ff",
+  },
+  basilisk: {
+    id: "basilisk",
+    name: "Basilisk",
+    kind: "monster",
+    cost: 48,
+    rule: "Every 6s, its gaze turns the nearest hero to stone for 2s.",
+    combo: "Stone heroes take +35% damage. Aim it down a saw track.",
+    color: "#8fbf5a",
+  },
+  kobold: {
+    id: "kobold",
+    name: "Kobold Tinker",
+    kind: "monster",
+    cost: 28,
+    rule: "Every 5s, repairs a disarmed or wrecked trap within 3 tiles.",
+    combo: "Undoes the work of rogues, sappers and warlords.",
+    color: "#d08a4a",
+  },
 };
 
 export interface MonsterStats {
@@ -536,6 +586,24 @@ export const MONSTERS: Record<MonsterId, MonsterStats> = {
     aggro: 4,
     leash: 4.5,
     magic: true,
+  },
+  basilisk: {
+    hp: 140,
+    dmg: 10,
+    cd: 1.2,
+    speed: 1.6,
+    range: 1,
+    aggro: 3,
+    leash: 2,
+  },
+  kobold: {
+    hp: 55,
+    dmg: 6,
+    cd: 0.9,
+    speed: 2.6,
+    range: 0.9,
+    aggro: 1.2,
+    leash: 1.5,
   },
 };
 export const MINIONS = {
@@ -694,7 +762,7 @@ export const HEROES: Record<HeroClass, HeroStats> = {
   },
   paladin: {
     name: "Sir Aldric",
-    hp: 720,
+    hp: 620,
     armor: 5,
     dmg: 22,
     cd: 1.1,
@@ -760,7 +828,7 @@ export const HEROES: Record<HeroClass, HeroStats> = {
   },
   archmage: {
     name: "Archmage Veyla",
-    hp: 560,
+    hp: 480,
     armor: 1,
     dmg: 20,
     cd: 1.5,
@@ -778,7 +846,7 @@ export const HEROES: Record<HeroClass, HeroStats> = {
   },
   warlord: {
     name: "Warlord Grukk",
-    hp: 980,
+    hp: 840,
     armor: 3,
     dmg: 28,
     cd: 1.4,
@@ -827,7 +895,7 @@ export const HEROES: Record<HeroClass, HeroStats> = {
   },
   thane: {
     name: "Thane Brannoc",
-    hp: 660,
+    hp: 570,
     armor: 4,
     dmg: 24,
     cd: 1.2,
@@ -843,7 +911,7 @@ export const HEROES: Record<HeroClass, HeroStats> = {
   },
   shade: {
     name: "Nyx the Shade",
-    hp: 560,
+    hp: 480,
     armor: 1,
     dmg: 18,
     cd: 0.7,
@@ -859,7 +927,7 @@ export const HEROES: Record<HeroClass, HeroStats> = {
   },
   revenant: {
     name: "The Hollow King",
-    hp: 780,
+    hp: 670,
     armor: 2,
     dmg: 20,
     cd: 1.3,
@@ -873,6 +941,56 @@ export const HEROES: Record<HeroClass, HeroStats> = {
     magic: true,
     rule: "Realm lord. Heroes who fall near him rise again, three times a night.",
     color: "#9fe0c8",
+  },
+  monk: {
+    name: "Monk",
+    hp: 105,
+    armor: 0,
+    dmg: 11,
+    cd: 0.65,
+    speed: 2.4,
+    range: 0.95,
+    engage: 2.5,
+    bounty: 13,
+    loot: 1,
+    greed: 1.5,
+    points: 4,
+    rule: "Deflects every other dart and arrow. Shrugs off slows.",
+    color: "#f0a040",
+  },
+  templar: {
+    name: "Templar",
+    hp: 150,
+    armor: 3,
+    dmg: 12,
+    cd: 1.1,
+    speed: 1.8,
+    range: 0.95,
+    engage: 3,
+    bounty: 15,
+    loot: 1,
+    greed: 1,
+    points: 5,
+    rule: "Shields allies within 2 tiles: they take 25% less damage.",
+    color: "#e6d3a0",
+  },
+  witch: {
+    name: "Morrigan the Witch Queen",
+    hp: 520,
+    armor: 1,
+    dmg: 18,
+    cd: 1.4,
+    speed: 1.7,
+    range: 3.5,
+    engage: 3.5,
+    bounty: 95,
+    loot: 5,
+    greed: 0,
+    points: 12,
+    magic: true,
+    splash: 0.8,
+    rule: "Realm lord. Every 8s, jinxes the traps within 3 tiles: they jam for 4s.",
+    color: "#c070e0",
   },
 };
 
@@ -896,9 +1014,13 @@ export const HERO_COUNTER: Record<HeroClass, string> = {
   thane: "Traps and guards close to the hoard. Mazes won't stop him.",
   shade: "Traps along the whole route. Monsters can't see her.",
   revenant: "Kill him first, or far from his party. Trapdoors split them.",
+  monk: "Melee monsters, fire, gas and crushers.",
+  templar: "Split the party: trapdoors, springs and ghosts. Burst him first.",
+  witch: "Monsters, and traps spread wider than her reach.",
 };
 
-export type BiomeId = "crypt" | "grotto" | "forge" | "glacier" | "abyss";
+export type BiomeId =
+  "crypt" | "grotto" | "forge" | "glacier" | "abyss" | "drowned" | "ossuary";
 export interface Biome {
   id: BiomeId;
   name: string;
@@ -991,6 +1113,36 @@ export const BIOMES: Record<BiomeId, Biome> = {
     veins: 3,
     pillars: 6,
   },
+  drowned: {
+    id: "drowned",
+    name: "Drowned Halls",
+    blurb: "Sea-green stone, dripping and cold.",
+    ambient: [64, 104, 112],
+    floorA: "#3f5c5e",
+    floorB: "#395456",
+    rockTop: "#16262a",
+    rockFace: "#284045",
+    rockDark: "#081113",
+    accent: "#5fe0d0",
+    torch: "#9ff0e0",
+    veins: 5,
+    pillars: 4,
+  },
+  ossuary: {
+    id: "ossuary",
+    name: "Bone Orchard",
+    blurb: "Ash and ivory. Rich veins under old graves.",
+    ambient: [110, 98, 86],
+    floorA: "#5e564c",
+    floorB: "#574f45",
+    rockTop: "#2a2520",
+    rockFace: "#463e35",
+    rockDark: "#13100d",
+    accent: "#f0e2c0",
+    torch: "#ffd9a0",
+    veins: 6,
+    pillars: 3,
+  },
 };
 export const BIOME_IDS = Object.keys(BIOMES) as BiomeId[];
 
@@ -1029,7 +1181,13 @@ export type RelicId =
   | "wanted"
   | "stormcall"
   | "phylactery"
-  | "archEye";
+  | "archEye"
+  | "bloodhound"
+  | "spite"
+  | "keys"
+  | "haunted"
+  | "ironJaws"
+  | "thornCrown";
 export interface RelicDef {
   id: RelicId;
   name: string;
@@ -1283,6 +1441,48 @@ export const RELICS: Record<RelicId, RelicDef> = {
     icon: "eye",
     rarity: "rare",
   },
+  bloodhound: {
+    id: "bloodhound",
+    name: "Bloodhounds",
+    text: "Monsters move 25% faster.",
+    icon: "banner",
+    rarity: "common",
+  },
+  spite: {
+    id: "spite",
+    name: "Spiteful Dead",
+    text: "Monsters burst for 20 damage when they fall.",
+    icon: "skull",
+    rarity: "common",
+  },
+  keys: {
+    id: "keys",
+    name: "Ancestral Keys",
+    text: "Boon rerolls are free.",
+    icon: "chest",
+    rarity: "rare",
+  },
+  haunted: {
+    id: "haunted",
+    name: "Haunted Halls",
+    text: "Fear lasts 50% longer, and frightened heroes take +25% damage.",
+    icon: "curse",
+    rarity: "common",
+  },
+  ironJaws: {
+    id: "ironJaws",
+    name: "Iron Jaws",
+    text: "Bear traps and mimics deal 50% more damage.",
+    icon: "blade",
+    rarity: "common",
+  },
+  thornCrown: {
+    id: "thornCrown",
+    name: "Crown of Thorns",
+    text: "Heroes who loot your hoard take 40 damage.",
+    icon: "chest",
+    rarity: "legendary",
+  },
 };
 
 export type PowerId = "rockfall" | "shriek" | "chill" | "sinkhole";
@@ -1329,12 +1529,27 @@ export const POWERS: Record<PowerId, PowerDef> = {
   },
 };
 /** Dread a power costs, after relics. */
-export function powerCost(id: PowerId, relics: readonly string[]) {
-  return Math.max(1, POWERS[id].cost - (relics.includes("archEye") ? 1 : 0));
+export function powerCost(
+  id: PowerId,
+  relics: readonly string[],
+  mutators: readonly string[] = [],
+) {
+  return Math.max(
+    1,
+    POWERS[id].cost -
+      (relics.includes("archEye") ? 1 : 0) +
+      (mutators.includes("eclipse") ? 2 : 0),
+  );
 }
 
 export type ArchitectId =
-  "mason" | "trickster" | "lich" | "beastmaster" | "alchemist" | "tinkerer";
+  | "mason"
+  | "trickster"
+  | "lich"
+  | "beastmaster"
+  | "alchemist"
+  | "tinkerer"
+  | "warden";
 export interface ArchitectDef {
   id: ArchitectId;
   name: string;
@@ -1391,6 +1606,14 @@ export const ARCHITECTS: ArchitectDef[] = [
     text: "Traps rearm 25% faster. Starts with crushers, darts and springs.",
     start: ["crusher", "darts", "spring", "lure"],
     unlockRenown: 350,
+  },
+  {
+    id: "warden",
+    name: "Ysolde",
+    title: "the Warden",
+    text: "The hoard holds 4 more treasure, and thieves carrying it are 15% slower. Starts with bear traps.",
+    start: ["beartrap", "archer", "spikes", "lure"],
+    unlockRenown: 640,
   },
 ];
 
@@ -1455,6 +1678,13 @@ export const UNLOCKS: Unlock[] = [
   { at: 350, kind: "architect", id: "tinkerer", label: "Korvin the Tinkerer" },
   { at: 385, kind: "piece", id: "gargoyle", label: "Gargoyle" },
   { at: 425, kind: "piece", id: "wraith", label: "Wraith" },
+  { at: 460, kind: "piece", id: "beartrap", label: "Bear Trap" },
+  { at: 500, kind: "biome", id: "drowned", label: "Drowned Halls" },
+  { at: 545, kind: "piece", id: "basilisk", label: "Basilisk" },
+  { at: 595, kind: "piece", id: "kobold", label: "Kobold Tinker" },
+  { at: 640, kind: "architect", id: "warden", label: "Ysolde the Warden" },
+  { at: 690, kind: "piece", id: "lantern", label: "Soul Lantern" },
+  { at: 750, kind: "biome", id: "ossuary", label: "Bone Orchard" },
 ];
 
 /** Architect ranks: titles that keep climbing after the unlock track ends. */
@@ -1532,7 +1762,11 @@ export type MutatorId =
   | "fog"
   | "undying"
   | "rich"
-  | "fortified";
+  | "fortified"
+  | "pilgrims"
+  | "eclipse"
+  | "leyLines"
+  | "stockpile";
 export interface MutatorDef {
   id: MutatorId;
   name: string;
@@ -1675,6 +1909,126 @@ export const MUTATORS: Record<MutatorId, MutatorDef> = {
     good: true,
     from: 3,
   },
+  pilgrims: {
+    id: "pilgrims",
+    name: "Pilgrims",
+    text: "From night 3, every party brings an extra cleric.",
+    good: false,
+    from: 7,
+  },
+  eclipse: {
+    id: "eclipse",
+    name: "Eclipse",
+    text: "Powers cost 2 more dread.",
+    good: false,
+    from: 5,
+  },
+  leyLines: {
+    id: "leyLines",
+    name: "Ley Lines",
+    text: "Raids begin with 6 more dread.",
+    good: true,
+    from: 4,
+  },
+  stockpile: {
+    id: "stockpile",
+    name: "Stockpile",
+    text: "Start with 60 more gold.",
+    good: true,
+    from: 3,
+  },
+};
+
+// ---------- Floorplans: every depth has its own shape ----------
+export type FloorplanId =
+  | "cellar"
+  | "gallery"
+  | "fork"
+  | "pillars"
+  | "labyrinth"
+  | "vault"
+  | "chasm"
+  | "caves"
+  | "corner"
+  | "mine"
+  | "throne";
+export interface FloorplanDef {
+  id: FloorplanId;
+  name: string;
+  text: string;
+  /** First depth where it can appear. */
+  from: number;
+  /** Only realm lords' depths use it. */
+  lord?: boolean;
+}
+export const FLOORPLANS: Record<FloorplanId, FloorplanDef> = {
+  cellar: {
+    id: "cellar",
+    name: "Cellars",
+    text: "A winding tunnel and a small hall.",
+    from: 1,
+  },
+  gallery: {
+    id: "gallery",
+    name: "Long Gallery",
+    text: "One straight hall to the hoard. Long lanes, a short walk.",
+    from: 2,
+  },
+  fork: {
+    id: "fork",
+    name: "The Fork",
+    text: "Two tunnels to the hoard. Heroes take the safer one.",
+    from: 2,
+  },
+  corner: {
+    id: "corner",
+    name: "Corner Stair",
+    text: "Stairs in one corner, the hoard in the far other.",
+    from: 2,
+  },
+  mine: {
+    id: "mine",
+    name: "Old Mine",
+    text: "Side shafts lined with gold off a straight ladder.",
+    from: 3,
+  },
+  pillars: {
+    id: "pillars",
+    name: "Pillared Hall",
+    text: "A great open hall of stone columns. Long sightlines.",
+    from: 3,
+  },
+  labyrinth: {
+    id: "labyrinth",
+    name: "Labyrinth",
+    text: "Masonry walls that can't be dug, each with one gap.",
+    from: 4,
+  },
+  chasm: {
+    id: "chasm",
+    name: "The Rift",
+    text: "A bedrock wall across the dungeon, crossed by two gaps.",
+    from: 4,
+  },
+  vault: {
+    id: "vault",
+    name: "Sealed Vault",
+    text: "The hoard sits in a sealed vault whose only door faces away.",
+    from: 6,
+  },
+  caves: {
+    id: "caves",
+    name: "Caverns",
+    text: "Open natural caves. Little to dig, much to fill.",
+    from: 7,
+  },
+  throne: {
+    id: "throne",
+    name: "Throne Hall",
+    text: "A lord's broad, columned nave before the hoard.",
+    from: 5,
+    lord: true,
+  },
 };
 
 // ---------- Realms: every five depths form a realm with a lord ----------
@@ -1711,7 +2065,10 @@ export type OmenId =
   | "brittle"
   | "meager"
   | "betrayal"
-  | "wrath";
+  | "wrath"
+  | "teeming"
+  | "blind"
+  | "tempered";
 export interface OmenDef {
   id: OmenId;
   name: string;
@@ -1779,6 +2136,24 @@ export const OMENS: Record<OmenId, OmenDef> = {
     text: "Champions have 40% more health and a larger guard.",
     heat: 2,
   },
+  teeming: {
+    id: "teeming",
+    name: "Teeming Halls",
+    text: "Parties are 20% larger.",
+    heat: 2,
+  },
+  blind: {
+    id: "blind",
+    name: "Blindfold",
+    text: "You can't see who's coming, only how many.",
+    heat: 1,
+  },
+  tempered: {
+    id: "tempered",
+    name: "Tempered Steel",
+    text: "Heroes wear +1 armor.",
+    heat: 2,
+  },
 };
 export const OMEN_IDS = Object.keys(OMENS) as OmenId[];
 export const heatOf = (omens: readonly OmenId[]) =>
@@ -1805,6 +2180,8 @@ export const HERO_DEPTH: Partial<Record<HeroClass, number>> = {
   inquisitor: 4,
   sapper: 5,
   druid: 6,
+  monk: 7,
+  templar: 9,
 };
 
 const DEPTH_NAMES_A = [
@@ -1864,7 +2241,9 @@ export type StatId =
   | "powerKills"
   | "dailies"
   | "trialStars"
-  | "abyssNights";
+  | "abyssNights"
+  | "encounters"
+  | "crowns";
 export interface FeatDef {
   id: string;
   name: string;
@@ -2157,5 +2536,73 @@ export const FEATS: FeatDef[] = [
     renown: 40,
     stat: "trialStars",
     goal: 90,
+  },
+  {
+    id: "witch",
+    name: "Witchbane",
+    text: "Defeat Morrigan the Witch Queen.",
+    renown: 12,
+  },
+  {
+    id: "depth40",
+    name: "Hollow Earth",
+    text: "Conquer depth 40.",
+    renown: 140,
+  },
+  {
+    id: "depth50",
+    name: "The Bottom of the World",
+    text: "Conquer depth 50.",
+    renown: 200,
+  },
+  {
+    id: "heat20",
+    name: "Apocalypse",
+    text: "Win a descent at heat 20 or more.",
+    renown: 80,
+  },
+  {
+    id: "crowns10",
+    name: "Crowned",
+    text: "Earn 10 depth crowns.",
+    renown: 10,
+    stat: "crowns",
+    goal: 10,
+  },
+  {
+    id: "crowns30",
+    name: "Regalia",
+    text: "Earn 30 depth crowns.",
+    renown: 25,
+    stat: "crowns",
+    goal: 30,
+  },
+  {
+    id: "crowns75",
+    name: "Crown of the Deep",
+    text: "Earn 75 depth crowns.",
+    renown: 60,
+    stat: "crowns",
+    goal: 75,
+  },
+  {
+    id: "realmSweep",
+    name: "Realm Sweep",
+    text: "Earn all three crowns on every depth of a realm.",
+    renown: 30,
+  },
+  {
+    id: "planner",
+    name: "Master Planner",
+    text: "Win a descent on every floorplan.",
+    renown: 30,
+  },
+  {
+    id: "dealer",
+    name: "Dealmaker",
+    text: "Accept 15 offers from dawn visitors.",
+    renown: 8,
+    stat: "encounters",
+    goal: 15,
   },
 ];

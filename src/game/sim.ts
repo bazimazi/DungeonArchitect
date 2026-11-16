@@ -182,6 +182,8 @@ export interface Hero extends UnitBase {
   hexMul: number;
   /** What set the hero burning (credited for burn kills). */
   burnSrc: string;
+  /** Monk: the next dart or arrow is turned aside. */
+  deflect: boolean;
 }
 export interface Monster extends UnitBase {
   side: "monster";
@@ -198,6 +200,8 @@ export interface Monster extends UnitBase {
   idleT: number;
   raiseT: number;
   pieceId: number;
+  /** Ability timer (basilisk gaze, kobold repairs). */
+  abilT: number;
 }
 export interface TrapState {
   obj: Placed;
@@ -216,6 +220,8 @@ export interface TrapState {
   fuse: number;
   sawDir: number;
   tickT: number;
+  /** Ticks left jammed by the Witch Queen's jinx. */
+  jam: number;
 }
 export interface Projectile {
   id: number;
@@ -299,7 +305,20 @@ export type RaidEvent =
   | { k: "stone"; x: number; y: number }
   | { k: "pit"; x: number; y: number; open: boolean }
   | { k: "strike"; fx: number; fy: number; x: number; y: number }
-  | { k: "step"; uid: number };
+  | { k: "step"; uid: number }
+  | { k: "deflect"; uid: number; x: number; y: number }
+  | {
+      k: "jinx";
+      uid: number;
+      x: number;
+      y: number;
+      pts: { x: number; y: number }[];
+    }
+  | { k: "gaze"; uid: number; x: number; y: number; tx: number; ty: number }
+  | { k: "repair"; x: number; y: number }
+  | { k: "soul"; x: number; y: number; tx: number; ty: number }
+  | { k: "spite"; x: number; y: number }
+  | { k: "snap"; uid: number; x: number; y: number };
 
 export interface RaidResult {
   killed: number;
@@ -320,6 +339,8 @@ export interface RaidResult {
 }
 
 const DISARMABLE: TrapId[] = [
+  "beartrap",
+  "lantern",
   "spikes",
   "trapdoor",
   "frost",
@@ -337,7 +358,13 @@ const TRAP_KINDS = new Set<string>(
   (Object.keys(PIECES) as PieceId[]).filter((k) => PIECES[k].kind === "trap"),
 );
 /** Floor plates that floating heroes drift over. */
-const FLOOR_PLATES: TrapId[] = ["spikes", "frost", "trapdoor", "spring"];
+const FLOOR_PLATES: TrapId[] = [
+  "spikes",
+  "frost",
+  "trapdoor",
+  "spring",
+  "beartrap",
+];
 const ROGUE_DETECT = 2;
 const RANGER_DETECT = 3.2;
 const s = (sec: number) => Math.round(sec / TICK);
@@ -409,6 +436,8 @@ export class Raid {
       this.dread = 8;
       this.dreadMax = 20;
     }
+    if (this.mutators.has("leyLines"))
+      this.dread = Math.min(this.dreadMax, this.dread + 6);
     const tierOf = (k: PieceId) => setup.mods.tiers[k] ?? 1;
     for (const o of this.layout.objects) {
       const def = PIECES[o.kind];
@@ -435,6 +464,7 @@ export class Raid {
           fuse: -1,
           sawDir: 1,
           tickT: 0,
+          jam: 0,
         });
       } else {
         const m = this.makeMonster(
@@ -497,7 +527,10 @@ export class Raid {
       side: "hero",
       cls,
       elite,
-      armor: d.armor + (this.mutators.has("ironclad") ? 2 : 0),
+      armor:
+        d.armor +
+        (this.mutators.has("ironclad") ? 2 : 0) +
+        (this.omens.has("tempered") ? 1 : 0),
       dmg: d.dmg * m.heroDmg * (elite ? 1.25 : 1),
       cd: d.cd,
       speed: d.speed * m.heroSpeed,
@@ -526,12 +559,15 @@ export class Raid {
               ? s(2.5)
               : cls === "shade"
                 ? s(4)
-                : 0,
+                : cls === "witch"
+                  ? s(3)
+                  : 0,
       bombs: cls === "sapper" ? (elite ? 2 : 1) : 0,
       reviveT: 0,
       revived: false,
       hexMul: 1,
       burnSrc: "flame",
+      deflect: false,
     };
     h.alive = false;
     this.heroes.push(h);
@@ -564,6 +600,7 @@ export class Raid {
       idleT: 0,
       raiseT: 0,
       pieceId: -1,
+      abilT: kind === "basilisk" ? s(1.5) : kind === "kobold" ? s(2) : 0,
     };
     this.monsters.push(m);
     return m;
@@ -616,7 +653,14 @@ export class Raid {
 
   private dangerCost = (x: number, y: number) => {
     const t = this.trapAt(x, y);
-    if (t && t.known && !t.disabled && t.kind !== "lure") return 40;
+    if (
+      t &&
+      t.known &&
+      !t.disabled &&
+      t.kind !== "lure" &&
+      t.kind !== "lantern"
+    )
+      return 40;
     return 0;
   };
   private hoardField() {
@@ -676,6 +720,19 @@ export class Raid {
       if (u.st.frozen > 0) amt *= this.relics.has("frostbite") ? 2 : 1.5;
       if (u.st.vuln > 0) amt *= 1.35;
       if (u.st.hex > 0) amt *= u.hexMul;
+      if (u.st.fear > 0 && this.relics.has("haunted")) amt *= 1.25;
+      // A templar's shield covers the allies around him (not himself).
+      if (
+        this.heroes.some(
+          (t) =>
+            t !== u &&
+            t.cls === "templar" &&
+            t.alive &&
+            t.state !== "falling" &&
+            this.d2(t.x, t.y, u.x, u.y) <= 2.05,
+        )
+      )
+        amt *= 0.75;
       if (type === "fire" && this.mutators.has("fireproof")) amt *= 0.5;
       if (type === "poison" && this.relics.has("venom")) amt *= 2;
       if (this.relics.has("lastStand") && this.hoard * 2 < this.hoardMax)
@@ -747,6 +804,27 @@ export class Raid {
         (this.mutators.has("rich") ? 1.5 : 1) *
         (h.revived ? 0.5 : 1),
     );
+    // Soul Lanterns harvest the deaths around them.
+    const lantern = this.traps.find(
+      (t) =>
+        t.kind === "lantern" &&
+        !t.disabled &&
+        t.jam <= 0 &&
+        this.d2(t.obj.x + 0.5, t.obj.y + 0.5, h.x, h.y) <= 2.05,
+    );
+    if (lantern) {
+      gold = Math.round(gold * (1 + 0.6 * this.tierMul("lantern")));
+      this.addDread(2);
+      lantern.active = true;
+      lantern.tickT = s(0.6);
+      this.emit({
+        k: "soul",
+        x: h.x,
+        y: h.y,
+        tx: lantern.obj.x + 0.5,
+        ty: lantern.obj.y + 0.3,
+      });
+    }
     if (this.relics.has("bloodMoney")) gold += 4;
     if (this.relics.has("toll") && TRAP_KINDS.has(h.lastSource)) gold += 5;
     const comboGold =
@@ -824,6 +902,12 @@ export class Raid {
   }
   private killMonster(m: Monster) {
     m.alive = false;
+    if (this.relics.has("spite")) {
+      this.emit({ k: "spite", x: m.x, y: m.y });
+      for (const h of this.livingHeroes())
+        if (!h.hop && this.d2(h.x, h.y, m.x, m.y) <= 1.3)
+          this.damage(h, 20, "magic", "spite");
+    }
     if (m.reforms > 0) {
       m.reforms--;
       m.reformT = s(4);
@@ -987,6 +1071,7 @@ export class Raid {
   private frighten(h: Hero, sec: number) {
     if (!h.alive || this.fearless(h)) return;
     if (h.st.fear <= 0) this.emit({ k: "fear", uid: h.uid, x: h.x, y: h.y });
+    if (this.relics.has("haunted")) sec *= 1.5;
     h.st.fear = Math.max(h.st.fear, s(sec));
     if (
       h.state === "loot" ||
@@ -1108,6 +1193,19 @@ export class Raid {
       if (t.disabled) {
         t.active = false;
         t.warn = false;
+        continue;
+      }
+      if (t.jam > 0) {
+        // Jinxed by the Witch Queen: frozen mid-cycle until the hex fades.
+        t.jam--;
+        // A rolling boulder halts mid-lane and rolls on when the hex fades.
+        if (t.kind !== "boulder") t.active = false;
+        t.warn = false;
+        continue;
+      }
+      if (t.kind === "lantern") {
+        if (t.tickT > 0) t.tickT--;
+        else t.active = false;
         continue;
       }
       const o = t.obj;
@@ -1446,7 +1544,7 @@ export class Raid {
   private igniteAt(x: number, y: number) {
     if (!inside(this.layout, x, y)) return;
     const t = this.trapAt(x, y);
-    if (!t || t.disabled) return;
+    if (!t || t.disabled || t.jam > 0) return;
     if (t.kind === "tar") {
       const k = idx(this.layout, x, y);
       if (!this.tarFire.has(k) && !this.tarCool.has(k)) {
@@ -1512,7 +1610,7 @@ export class Raid {
   /** A hero arrives on a tile center (or lands). Floor triggers fire here. */
   private onEnter(h: Hero, x: number, y: number) {
     const t = this.trapAt(x, y);
-    if (!t || t.disabled || t.cd > 0 || !h.alive) return;
+    if (!t || t.disabled || t.jam > 0 || t.cd > 0 || !h.alive) return;
     const mul = this.tierMul(t.kind);
     if (FLOOR_PLATES.includes(t.kind)) {
       // Windcallers drift over floor plates without setting them off.
@@ -1574,6 +1672,21 @@ export class Raid {
           ty += DY[t.obj.dir];
         }
         if (tx !== x || ty !== y) this.hopTo(h, tx, ty, 0.45, 1.2);
+        break;
+      }
+      case "beartrap": {
+        t.cd = this.rearm(6);
+        this.mark(t);
+        this.emit({ k: "trap", kind: "beartrap", x, y, dir: 0 });
+        this.emit({ k: "snap", uid: h.uid, x: h.x, y: h.y });
+        this.damage(
+          h,
+          26 * mul * (this.relics.has("ironJaws") ? 1.5 : 1),
+          "phys",
+          "beartrap",
+        );
+        if (h.alive)
+          h.st.stun = Math.max(h.st.stun, s(isChampion(h.cls) ? 1 : 2.5));
         break;
       }
       case "keg":
@@ -1690,6 +1803,28 @@ export class Raid {
         a.st.fear = 0;
       }
     }
+    // The Witch Queen jinxes the traps around her.
+    if (h.cls === "witch" && h.skillT <= 0 && !h.hop) {
+      const hit = this.traps.filter(
+        (t) =>
+          !t.disabled &&
+          t.kind !== "lure" &&
+          !(t.kind === "keg" && t.used) &&
+          this.d2(t.obj.x + 0.5, t.obj.y + 0.5, h.x, h.y) <= 3.05,
+      );
+      if (hit.length) {
+        h.skillT = s(8);
+        h.lastAtk = this.tick;
+        for (const t of hit) t.jam = Math.max(t.jam, s(4));
+        this.emit({
+          k: "jinx",
+          uid: h.uid,
+          x: h.x,
+          y: h.y,
+          pts: hit.map((t) => ({ x: t.obj.x + 0.5, y: t.obj.y + 0.5 })),
+        });
+      }
+    }
     // Airborne (spring / knockback).
     if (h.hop) {
       const hp = h.hop;
@@ -1747,6 +1882,8 @@ export class Raid {
         h.state = "escape";
         if (take > 0)
           this.emit({ k: "loot", uid: h.uid, x: h.x, y: h.y, amount: take });
+        if (take > 0 && this.relics.has("thornCrown"))
+          this.damage(h, 40, "crush", "thornCrown");
       } else if (h.state === "lure") {
         h.lureDone = true;
         h.state = this.homeward(h);
@@ -1935,7 +2072,14 @@ export class Raid {
             mimic.hidden = false;
             h.lureDone = true;
             this.emit({ k: "mimic", x: mimic.x, y: mimic.y });
-            this.damage(h, 45 * this.tierMul("mimic"), "phys", "mimic");
+            this.damage(
+              h,
+              45 *
+                this.tierMul("mimic") *
+                (this.relics.has("ironJaws") ? 1.5 : 1),
+              "phys",
+              "mimic",
+            );
             mimic.lastAtk = this.tick;
             mimic.atkT = s(mimic.stats.cd);
             return;
@@ -2119,7 +2263,9 @@ export class Raid {
           ? "note"
           : h.cls === "windcaller"
             ? "bolt"
-            : "arrow";
+            : h.cls === "witch"
+              ? "shadow"
+              : "arrow";
       const sp = kind === "arrow" ? 11 : kind === "bolt" ? 9 : 7;
       this.spawnProjectile(
         kind,
@@ -2226,13 +2372,18 @@ export class Raid {
     let speed = u.side === "hero" ? u.speed : u.stats.speed;
     if (u.side === "hero" && u.cls === "thane" && u.state === "escape")
       speed *= 1.1;
-    if (u.st.slow > 0) speed *= 0.5;
+    // Monks shrug off every slow: tar, webs and chill.
+    const monk = u.side === "hero" && u.cls === "monk";
+    if (u.st.slow > 0 && !monk) speed *= 0.5;
+    if (u.side === "monster" && this.relics.has("bloodhound")) speed *= 1.25;
     if (u.side === "hero") {
+      if (u.loot > 0 && this.setup.mods.arch === "warden") speed *= 0.85;
       const tr = this.trapAt(Math.floor(u.x), Math.floor(u.y));
       if (
         tr &&
         tr.kind === "tar" &&
         !tr.disabled &&
+        !monk &&
         u.cls !== "windcaller" &&
         u.cls !== "warlord"
       ) {
@@ -2304,6 +2455,7 @@ export class Raid {
     if (m.hop) {
       m.hop = null;
     }
+    if (m.kind === "basilisk" || m.kind === "kobold") this.ability(m);
     const st = m.stats;
     const ghostly = m.kind === "wraith";
     const heroes = this.livingHeroes().filter((h) => !h.hop && h.st.veil <= 0);
@@ -2319,7 +2471,10 @@ export class Raid {
       if (d > st.aggro && m.target !== h.uid) continue;
       if (!ghostly && !lineOfSight(this.layout, m.x, m.y, h.x, h.y)) continue;
       const taunt =
-        (h.cls === "knight" || h.cls === "paladin" || h.cls === "thane") &&
+        (h.cls === "knight" ||
+          h.cls === "paladin" ||
+          h.cls === "thane" ||
+          h.cls === "templar") &&
         d <= 2.5
           ? -3
           : 0;
@@ -2375,7 +2530,8 @@ export class Raid {
             this.monsterHit(
               m,
               target,
-              m.dmg,
+              m.dmg *
+                (m.kind === "mimic" && this.relics.has("ironJaws") ? 1.5 : 1),
               st.magic ? "magic" : "phys",
               m.kind,
             );
@@ -2426,12 +2582,71 @@ export class Raid {
       }
     }
   }
+  /** Basilisk gaze and kobold repairs. */
+  private ability(m: Monster) {
+    if (m.abilT > 0) {
+      m.abilT--;
+      return;
+    }
+    if (m.kind === "basilisk") {
+      let best: Hero | null = null;
+      let bd = 4.05;
+      for (const h of this.livingHeroes()) {
+        if (h.hop || h.st.veil > 0) continue;
+        const d = this.d2(h.x, h.y, m.x, m.y);
+        if (d > bd || !lineOfSight(this.layout, m.x, m.y, h.x, h.y)) continue;
+        best = h;
+        bd = d;
+      }
+      if (!best) {
+        m.abilT = s(0.3);
+        return;
+      }
+      m.abilT = s(6);
+      m.lastAtk = this.tick;
+      m.face = best.x < m.x ? -1 : 1;
+      this.emit({
+        k: "gaze",
+        uid: m.uid,
+        x: m.x,
+        y: m.y,
+        tx: best.x,
+        ty: best.y,
+      });
+      const sec = isChampion(best.cls) ? 1 : 2;
+      best.st.stun = Math.max(best.st.stun, s(sec));
+      best.st.vuln = Math.max(best.st.vuln, s(sec));
+      best.lastSource = "basilisk";
+      return;
+    }
+    // Kobold: put one broken trap nearby back in working order.
+    const t = this.traps.find(
+      (q) =>
+        q.disabled &&
+        !(q.kind === "keg" && q.used) &&
+        this.d2(q.obj.x + 0.5, q.obj.y + 0.5, m.x, m.y) <= 3.05,
+    );
+    if (!t) {
+      m.abilT = s(0.5);
+      return;
+    }
+    m.abilT = s(5);
+    m.lastAtk = this.tick;
+    t.disabled = false;
+    t.cd = s(0.5);
+    this.dirty = true;
+    this.emit({ k: "repair", x: t.obj.x + 0.5, y: t.obj.y + 0.5 });
+  }
   /** Wraiths float straight through rock. */
   private drift(m: Monster, tx: number, ty: number) {
     const dx = tx - m.x;
     const dy = ty - m.y;
     const d = Math.sqrt(dx * dx + dy * dy);
-    const step = m.stats.speed * (m.st.slow > 0 ? 0.5 : 1) * TICK;
+    const step =
+      m.stats.speed *
+      (m.st.slow > 0 ? 0.5 : 1) *
+      (this.relics.has("bloodhound") ? 1.25 : 1) *
+      TICK;
     m.next = null;
     if (dx !== 0) m.face = dx < 0 ? -1 : 1;
     if (d <= step) {
@@ -2549,6 +2764,18 @@ export class Raid {
     this.projectiles = keep;
   }
   private impact(p: Projectile, t: Hero | Monster) {
+    if (
+      t.side === "hero" &&
+      t.cls === "monk" &&
+      !p.fromHero &&
+      (p.kind === "dart" || p.kind === "arrow")
+    ) {
+      t.deflect = !t.deflect;
+      if (t.deflect) {
+        this.emit({ k: "deflect", uid: t.uid, x: t.x, y: t.y });
+        return;
+      }
+    }
     const exposed =
       t.side === "hero" &&
       t.cls === "windcaller" &&

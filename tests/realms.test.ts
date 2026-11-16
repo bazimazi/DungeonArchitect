@@ -90,7 +90,8 @@ describe("realms", () => {
     expect(depthInfo(5).boss).toBe("thane");
     expect(depthInfo(10).boss).toBe("shade");
     expect(depthInfo(15).boss).toBe("revenant");
-    expect(depthInfo(20).boss).toBe("thane");
+    expect(depthInfo(20).boss).toBe("witch");
+    expect(depthInfo(25).boss).toBe("thane");
     expect(depthInfo(5).lord).toBe(true);
     expect(depthInfo(5).realmName).toBe("The Upper Dark");
     expect(depthInfo(41).realmName).toMatch(/ II$/);

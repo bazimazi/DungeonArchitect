@@ -6,6 +6,7 @@ import {
   BIOME_IDS,
   DEPTH_HEAT,
   FEATS,
+  FLOORPLANS,
   HEROES,
   HERO_COUNTER,
   MUTATORS,
@@ -15,6 +16,7 @@ import {
   PIECES,
   POWERS,
   REALM_LORDS,
+  REALM_SIZE,
   RELICS,
   UNLOCKS,
   depthName,
@@ -22,6 +24,8 @@ import {
   heatRenown,
   isChampion,
   rankFor,
+  realmName,
+  realmOf,
   roman,
   type ArchitectId,
   type BiomeId,
@@ -40,6 +44,10 @@ import {
 } from "../game/trials";
 import type { Profile } from "../game/profile";
 import {
+  ASCENDANT_HEAT,
+  CROWNS,
+  crownCount,
+  totalCrowns,
   nextUnlock,
   unlockedArchitects,
   unlockedBiomes,
@@ -54,6 +62,11 @@ import {
   type RunState,
 } from "../game/run";
 import type { RaidResult } from "../game/sim";
+import {
+  ENCOUNTERS,
+  encounterOptions,
+  type Encounter,
+} from "../game/encounters";
 import { fmt, h, heroArt, icon, pieceArt } from "./dom";
 
 export class Layer {
@@ -80,9 +93,9 @@ export class Layer {
     this.root.append(wrap);
     this.stack.push(wrap);
     requestAnimationFrame(() => wrap.classList.add("in"));
-    const first = el.querySelector<HTMLElement>(
-      "[autofocus], button:not([disabled])",
-    );
+    const first =
+      el.querySelector<HTMLElement>("[autofocus]") ??
+      el.querySelector<HTMLElement>("button:not([disabled])");
     first?.focus({ preventScroll: true });
     return () => this.close(wrap);
   }
@@ -141,6 +154,7 @@ export interface TitleOpts {
   onDaily(): void;
   onWorkshop(): void;
   onTrials(): void;
+  onAtlas(): void;
   onCodex(): void;
   onFeats(): void;
   onSettings(): void;
@@ -243,6 +257,21 @@ export function titleScreen(o: TitleOpts) {
           h(
             "span",
             {},
+            icon("abyss"),
+            h("b", {}, "Atlas"),
+            h(
+              "small",
+              {},
+              p.bestDepth > 0 ? `${totalCrowns(p)} crowns` : "Every depth",
+            ),
+          ),
+          o.onAtlas,
+          "btn tile",
+        ),
+        btn(
+          h(
+            "span",
+            {},
             icon("hammer"),
             h("b", {}, "Workshop"),
             h("small", {}, "Build & share"),
@@ -311,12 +340,16 @@ export function setupScreen(
   profile: Profile,
   onStart: (o: SetupChoice) => void,
   onBack: () => void,
+  initialDepth?: number,
 ) {
   const biomes = unlockedBiomes(profile);
   const archs = unlockedArchitects(profile);
   let biome: BiomeId = biomes[biomes.length - 1];
   let arch: ArchitectId = "mason";
-  let depth = profile.maxDepth;
+  let depth = Math.max(
+    1,
+    Math.min(profile.maxDepth, initialDepth ?? profile.maxDepth),
+  );
   const omensOpen = profile.bestHeat >= 0;
   const omens = new Set<OmenId>(omensOpen ? profile.omens : []);
   const root = h("div", { class: "panel setup" });
@@ -418,7 +451,14 @@ export function setupScreen(
             { class: "realm" },
             `Realm ${roman(info.realm)} · ${info.realmName}`,
           ),
-          h("b", {}, info.name),
+          h("b", {}, info.name, crownPips(profile.depths[depth]?.crowns ?? 0)),
+          h(
+            "p",
+            { class: "plan-line" },
+            h("b", {}, FLOORPLANS[info.plan].name),
+            " · ",
+            FLOORPLANS[info.plan].text,
+          ),
           h(
             "div",
             { class: "boss-line" },
@@ -564,6 +604,8 @@ export function resultsScreen(o: {
   deadliest: string | null;
   feats: FeatDef[];
   unlocked: string[];
+  wager?: { stake: number; won: number } | null;
+  tunnels?: { dug: number; from: number; to: number } | null;
 }) {
   const starEls = [0, 1, 2].map((i) =>
     h("span", { class: `star s${i}` }, icon("star")),
@@ -576,6 +618,18 @@ export function resultsScreen(o: {
     ["Dawn tribute", `+${o.income}`],
   ];
   if (o.interest) rows.push(["Treasury interest", `+${o.interest}`]);
+  if (o.tunnels)
+    rows.push([
+      "Tunnels dug",
+      o.tunnels.to < o.tunnels.from
+        ? `${o.tunnels.dug} · route ${o.tunnels.from} → ${o.tunnels.to}`
+        : `${o.tunnels.dug}`,
+    ]);
+  if (o.wager)
+    rows.push([
+      "Imp's wager",
+      o.wager.won ? `+${o.wager.won}` : `Lost ${o.wager.stake}`,
+    ]);
   if (o.result.bestCombo > 1)
     rows.push(["Best combo", `${o.result.bestCombo}×`]);
   if (o.deadliest) rows.push(["Deadliest", o.deadliest]);
@@ -756,7 +810,7 @@ export function draftScreen(
               "span",
               {},
               icon("reroll", "ic tiny"),
-              ` Reroll (${reroll.cost} gold)`,
+              reroll.cost ? ` Reroll (${reroll.cost} gold)` : " Reroll (free)",
             ),
             () => {
               if (picked || run.gold < reroll.cost) return;
@@ -793,6 +847,7 @@ export function gameOverScreen(o: {
   onShare(): void;
   onAbyss: (() => void) | null;
   dailyText: string | null;
+  crowns?: string[];
 }) {
   const run = o.run;
   const won = !!run.victory;
@@ -877,6 +932,16 @@ export function gameOverScreen(o: {
             {},
             h("b", {}, `Depth ${o.newDepth} unlocked`),
             h("small", {}, depthName(o.newDepth)),
+          ),
+        )
+      : null,
+    o.crowns?.length
+      ? h(
+          "div",
+          { class: "unlocks chips crowns-earned" },
+          h("h3", {}, o.crowns.length > 1 ? "Crowns earned" : "Crown earned"),
+          ...o.crowns.map((c) =>
+            h("div", { class: "unlock" }, icon("crown", "ic tiny"), c),
           ),
         )
       : null,
@@ -1603,6 +1668,270 @@ export function namePrompt(
       { class: "actions" },
       btn("Cancel", onCancel, "btn ghost"),
       btn(h("b", {}, "Create link"), go, "btn primary"),
+    ),
+  );
+}
+
+// ---------------- Crowns ----------------
+/** Three small crowns, lit for each one earned on a depth. */
+export function crownPips(mask: number) {
+  return h(
+    "span",
+    {
+      class: "crown-pips",
+      "aria-label": `${crownCount(mask)} of 3 crowns`,
+      title: CROWNS.filter((c) => mask & c.bit)
+        .map((c) => c.name)
+        .join(", "),
+    },
+    ...CROWNS.map((c) =>
+      h("i", { class: mask & c.bit ? `on c${c.bit}` : "" }, icon("crown")),
+    ),
+  );
+}
+
+// ---------------- Atlas of the Deep ----------------
+export function atlasScreen(
+  p: Profile,
+  onDescend: (depth: number) => void,
+  onClose: () => void,
+) {
+  const root = h("div", { class: "panel atlas" });
+  let sel = p.maxDepth;
+  const lastRealm = realmOf(p.maxDepth);
+  const detail = () => {
+    const info = depthInfo(sel);
+    const rec = p.depths[sel];
+    const open = sel <= p.maxDepth;
+    const plan = FLOORPLANS[info.plan];
+    return h(
+      "div",
+      { class: "atlas-detail" },
+      h(
+        "div",
+        { class: "atlas-title" },
+        h("span", { class: "depth-num" }, String(sel)),
+        h(
+          "span",
+          {},
+          h(
+            "small",
+            { class: "realm" },
+            `Realm ${roman(info.realm)} · ${info.realmName}`,
+          ),
+          h("b", {}, info.name),
+        ),
+      ),
+      h("p", { class: "plan-line" }, h("b", {}, plan.name), " · ", plan.text),
+      h(
+        "div",
+        { class: "boss-line" },
+        heroArt(info.boss, 34),
+        h(
+          "span",
+          {},
+          h("small", {}, info.lord ? "Realm lord" : "Night 10 champion"),
+          HEROES[info.boss].name,
+        ),
+      ),
+      info.mutators.length
+        ? h(
+            "div",
+            { class: "mut-list" },
+            ...info.mutators.map((m) =>
+              h(
+                "span",
+                { class: `mut${MUTATORS[m].good ? " good" : ""}` },
+                h("b", {}, MUTATORS[m].name),
+                " ",
+                MUTATORS[m].text,
+              ),
+            ),
+          )
+        : h("p", { class: "muted" }, "No twists. A fair fight."),
+      h(
+        "div",
+        { class: "crown-goals" },
+        ...CROWNS.map((c) =>
+          h(
+            "div",
+            { class: `crown-goal${(rec?.crowns ?? 0) & c.bit ? " got" : ""}` },
+            icon("crown", "ic tiny"),
+            h(
+              "span",
+              {},
+              h("b", {}, c.name),
+              h(
+                "small",
+                {},
+                c.bit === 4 ? `Win at heat ${ASCENDANT_HEAT} or more.` : c.text,
+                c.renown ? ` +${c.renown} renown` : "",
+              ),
+            ),
+          ),
+        ),
+      ),
+      rec && rec.wins
+        ? h(
+            "p",
+            { class: "muted record-line" },
+            `Won ${rec.wins}× · best ${rec.bestStars} stars${rec.bestHeat > 0 ? ` · heat ${rec.bestHeat}` : ""}`,
+          )
+        : null,
+      open
+        ? btn(
+            h("b", {}, `Descend to depth ${sel}`),
+            () => onDescend(sel),
+            "btn primary",
+          )
+        : h(
+            "p",
+            { class: "frontier" },
+            `Conquer depth ${p.maxDepth} to open the way.`,
+          ),
+    );
+  };
+  const realmEl = (r: number) => {
+    const first = (r - 1) * REALM_SIZE + 1;
+    let crowns = 0;
+    for (let d = first; d < first + REALM_SIZE; d++)
+      crowns += crownCount(p.depths[d]?.crowns ?? 0);
+    return h(
+      "section",
+      { class: "realm-row" },
+      h(
+        "div",
+        { class: "realm-head" },
+        h("b", {}, `${roman(r)} · ${realmName(r)}`),
+        h("small", {}, `${crowns}/${REALM_SIZE * 3}`, icon("crown", "ic tiny")),
+      ),
+      h(
+        "div",
+        { class: "realm-nodes" },
+        ...Array.from({ length: REALM_SIZE }, (_, i) => {
+          const d = first + i;
+          const info = depthInfo(d);
+          const mask = p.depths[d]?.crowns ?? 0;
+          const locked = d > p.maxDepth;
+          return h(
+            "button",
+            {
+              class: `depth-node${info.lord ? " lord" : ""}${locked ? " locked" : ""}${d === sel ? " on" : ""}${d === p.maxDepth ? " frontier" : ""}${mask & 1 ? " won" : ""}`,
+              "aria-label": `Depth ${d}${locked ? ", locked" : ""}`,
+              onclick: () => {
+                audio.play("click");
+                sel = d;
+                render();
+                root
+                  .querySelector(".atlas-detail")
+                  ?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+              },
+            },
+            info.lord ? heroArt(info.boss, 30) : h("b", {}, String(d)),
+            crownPips(mask),
+          );
+        }),
+      ),
+    );
+  };
+  const render = () => {
+    const keep = root.querySelector(".atlas-realms")?.scrollTop;
+    const realms = h(
+      "div",
+      { class: "atlas-realms" },
+      ...Array.from({ length: lastRealm }, (_, i) => realmEl(i + 1)),
+    );
+    root.replaceChildren(
+      h(
+        "div",
+        { class: "codex-head" },
+        h("h2", {}, "Atlas of the Deep"),
+        h(
+          "button",
+          { class: "icon-btn", "aria-label": "Close", onclick: onClose },
+          icon("close"),
+        ),
+      ),
+      h(
+        "p",
+        { class: "muted atlas-sub" },
+        `${totalCrowns(p)} crowns · ${p.bestDepth ? `deepest conquest: depth ${p.bestDepth}` : "no depth conquered yet"} · ${Object.keys(FLOORPLANS).length - (p.planWins?.length ?? 0)} floorplans unbeaten`,
+      ),
+      detail(),
+      realms,
+    );
+    if (keep !== undefined) realms.scrollTop = keep;
+    else
+      requestAnimationFrame(() => {
+        realms.scrollTop = realms.scrollHeight;
+      });
+  };
+  render();
+  return root;
+}
+
+// ---------------- Dawn visitors ----------------
+export function encounterScreen(
+  run: RunState,
+  e: Encounter,
+  onChoose: (i: number) => void,
+) {
+  const def = ENCOUNTERS[e.id];
+  const opts = encounterOptions(run, e);
+  // Keyboard focus starts on the harmless choice, never on a purchase.
+  const safe = Math.max(
+    0,
+    opts.findIndex((o) => o.leave),
+  );
+  let done = false;
+  return h(
+    "div",
+    { class: "panel encounter" },
+    h("small", { class: "kicker" }, `Dawn · Night ${e.night}`),
+    h("div", { class: "enc-art" }, icon(def.icon, "ic huge")),
+    h("h2", {}, def.name),
+    h("p", { class: "sub" }, def.text),
+    h(
+      "p",
+      { class: "enc-purse" },
+      icon("coin", "ic tiny"),
+      ` ${run.gold} gold · `,
+      icon("hoard", "ic tiny"),
+      ` ${run.hoard}/${run.hoardMax}`,
+    ),
+    h(
+      "div",
+      { class: "enc-options" },
+      ...opts.map((o, i) =>
+        h(
+          "button",
+          {
+            class: `enc-opt${o.leave ? " leave" : ""}`,
+            ...(o.ok ? {} : { disabled: "" }),
+            ...(i === safe ? { autofocus: "" } : {}),
+            onclick: () => {
+              if (done || !o.ok) return;
+              done = true;
+              audio.play(o.leave ? "click" : "unlock");
+              onChoose(i);
+            },
+          },
+          h(
+            "span",
+            { class: "enc-text" },
+            h("b", {}, o.label),
+            o.detail ? h("small", {}, o.detail) : null,
+          ),
+          o.cost
+            ? h(
+                "span",
+                { class: "card-cost" },
+                icon("coin", "ic tiny"),
+                String(o.cost),
+              )
+            : null,
+        ),
+      ),
     ),
   );
 }

@@ -546,6 +546,7 @@ export class Hud {
     cooldowns: Record<string, number>,
     selected: PowerId | null,
     relics: readonly string[] = [],
+    mutators: readonly string[] = [],
   ) {
     if (this.powersEl.childElementCount !== powers.length) {
       this.powersEl.replaceChildren(
@@ -572,7 +573,7 @@ export class Hud {
               "span",
               { class: "pcost" },
               icon("dread", "ic tiny"),
-              String(powerCost(p, relics)),
+              String(powerCost(p, relics, mutators)),
             ),
             h("i", { class: "cd" }),
           ),
@@ -583,7 +584,7 @@ export class Hud {
       const p = el.dataset.power as PowerId;
       const cd = cooldowns[p] ?? 0;
       el.classList.toggle("on", selected === p);
-      const cost = powerCost(p, relics);
+      const cost = powerCost(p, relics, mutators);
       el.classList.toggle("poor", dread < cost);
       el.classList.toggle("ready", dread >= cost && cd <= 0);
       (el.querySelector(".cd") as HTMLElement).style.height =

@@ -106,6 +106,23 @@ function shapeRoute(run: RunState, budget: number) {
     for (let x = 1; x < l.w - 1; x++)
       if (l.tiles[idx(l, x, y)] === T.Vein && !canDig(run, x, y))
         dig(run, x, y);
+  // Open halls and caves: wall off floor the route doesn't use (filling is
+  // free), the way a player builds a corridor through a big room.
+  const keep = new Set(path(l).map((t) => idx(l, t.x, t.y)));
+  // Only floor connected to the stairs counts (not dug-out vein pockets).
+  const reach = distanceField(l, l.entrance.x, l.entrance.y);
+  const spare: [number, number][] = [];
+  for (let y = 1; y < l.h - 1; y++)
+    for (let x = 1; x < l.w - 1; x++) {
+      if (l.tiles[idx(l, x, y)] !== T.Floor || keep.has(idx(l, x, y))) continue;
+      if (reach[idx(l, x, y)] === Infinity) continue;
+      if (protectedTile(x, y) || objectAt(l, x, y)) continue;
+      if (Math.abs(x - l.hoard.x) <= 1 && Math.abs(y - l.hoard.y) <= 1)
+        continue;
+      spare.push([x, y]);
+    }
+  if (run.night === 1 && spare.length > 12)
+    for (const [x, y] of spare) if (!canFill(run, x, y)) fill(run, x, y);
   let spent = 0;
   for (let iter = 0; iter < 40; iter++) {
     const base = routeLength(l);
@@ -264,6 +281,10 @@ const VALUE: Partial<Record<PieceId, number>> = {
   gargoyle: 1.1,
   wraith: 1.0,
   lure: 0.5,
+  beartrap: 1.0,
+  lantern: 0.3,
+  basilisk: 1.0,
+  kobold: 0.4,
 };
 
 function placePieces(run: RunState, rng: Rng) {
@@ -399,7 +420,11 @@ function castPowers(
       continue;
     }
     const def = POWERS[p];
-    const cost = powerCost(p, raid.setup.mods.relics);
+    const cost = powerCost(
+      p,
+      raid.setup.mods.relics,
+      raid.setup.mods.mutators ?? [],
+    );
     if (raid.dread < cost + (p === "rockfall" ? 0 : 2)) continue;
     const heroes = raid.heroes.filter((h) => h.alive && h.state !== "falling");
     if (!heroes.length) continue;

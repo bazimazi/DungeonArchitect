@@ -142,7 +142,8 @@ describe("parties", () => {
     expect(championFor(r, 15)).toBe("archmage");
     expect(championFor(r, 20)).toBe("warlord");
     expect(championFor(r, 25)).toBe("thane");
-    expect(championFor(r, 40)).toBe("paladin");
+    expect(championFor(r, 40)).toBe("witch");
+    expect(championFor(r, 45)).toBe("paladin");
     expect(partyFor(r, 15)[0].cls).toBe("archmage");
   });
   it("never exceed ten heroes", () => {

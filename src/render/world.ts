@@ -436,6 +436,34 @@ export class Renderer {
       ctx.lineTo(x + 0.45, y + 0.7);
       ctx.lineTo(x + 0.6, y + 0.85);
       ctx.stroke();
+    } else if (d < 0.3 && b.id === "drowned") {
+      // Shallow puddles with a pale rim.
+      ctx.fillStyle = "rgba(60,160,170,0.35)";
+      ctx.beginPath();
+      ctx.ellipse(
+        x + 0.35 + cellHash(x, y, 40) * 0.3,
+        y + 0.6,
+        0.2,
+        0.09,
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.fill();
+      ctx.strokeStyle = "rgba(160,240,230,0.3)";
+      ctx.lineWidth = 0.02;
+      ctx.stroke();
+    } else if (d < 0.26 && b.id === "ossuary") {
+      // A scatter of old bones.
+      ctx.strokeStyle = "rgba(240,226,192,0.45)";
+      ctx.lineWidth = 0.035;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(x + 0.25, y + 0.7);
+      ctx.lineTo(x + 0.55, y + 0.62);
+      ctx.moveTo(x + 0.45, y + 0.78);
+      ctx.lineTo(x + 0.7, y + 0.58);
+      ctx.stroke();
     }
     // Ambient occlusion from neighbouring rock.
     const ao = (
@@ -1401,6 +1429,22 @@ export class Renderer {
       burning,
     });
     ctx.restore();
+    if (st && st.jam > 0 && !st.disabled) {
+      // Jinxed: a turning ring of witch-runes holds the trap still.
+      ctx.save();
+      ctx.translate(o.x + 0.5, o.y + 0.55);
+      ctx.rotate(time * 1.5);
+      ctx.strokeStyle = "rgba(190,120,255,0.85)";
+      ctx.lineWidth = 0.04;
+      ctx.setLineDash([0.12, 0.08]);
+      ctx.beginPath();
+      ctx.arc(0, 0, 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = "rgba(120,60,180,0.25)";
+      ctx.fill();
+      ctx.restore();
+    }
     if (st?.disabled) {
       ctx.save();
       ctx.strokeStyle = "#7ef0ff";

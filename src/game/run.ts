@@ -10,6 +10,7 @@ import {
   CHAMPIONS,
   CLASSIC_CHAMPIONS,
   DIG_COST,
+  FLOORPLANS,
   HEROES,
   HERO_DEPTH,
   MUTATORS,
@@ -30,6 +31,7 @@ import {
   type ArchitectId,
   type BiomeId,
   type ChampionId,
+  type FloorplanId,
   type HeroClass,
   type MutatorId,
   type OmenId,
@@ -38,14 +40,17 @@ import {
   type RelicId,
 } from "./defs";
 import {
+  distanceField,
   generateLayout,
   hasRoute,
   idx,
   inside,
   objectAt,
+  pathTo,
   type Layout,
 } from "./grid";
 import type { PartyMember, RaidMods, RaidResult } from "./sim";
+import type { Encounter } from "./encounters";
 
 export type Card =
   | { type: "piece"; id: PieceId }
@@ -116,6 +121,20 @@ export interface RunState {
   noDig?: boolean;
   /** Fixed pieces that can't be moved or sold (trials). */
   locked?: number[];
+  /** Cursed Shrine bargains: each gives heroes +8% health for the run. */
+  blight?: number;
+  /** Extra piece capacity bought from dawn visitors. */
+  extraCap?: number;
+  /** A dawn visitor waiting to be answered before building. */
+  encounter?: Encounter | null;
+  /** Night of the last dawn visitor (never two nights running). */
+  lastEncounter?: number;
+  /** A bet on earning three stars on a night. */
+  wager?: { night: number; stake: number } | null;
+  /** Night whose party lost its strongest hero to a turncoat's bribe. */
+  bribe?: number;
+  /** Crowns shown on the last legend screen (stable across reloads). */
+  lastCrowns?: string[];
 }
 
 export const HERO_ARRIVAL: Record<HeroClass, number> = {
@@ -137,6 +156,9 @@ export const HERO_ARRIVAL: Record<HeroClass, number> = {
   thane: 10,
   shade: 10,
   revenant: 10,
+  monk: 5,
+  templar: 6,
+  witch: 10,
 };
 
 // ---------------- depths ----------------
@@ -149,6 +171,49 @@ export interface DepthInfo {
   realmName: string;
   /** The realm's final depth, guarded by a realm lord. */
   lord: boolean;
+  /** The shape of the dungeon. */
+  plan: FloorplanId;
+}
+
+/** The first depths introduce the floorplans one at a time. */
+const EARLY_PLANS: FloorplanId[] = [
+  "cellar",
+  "corner",
+  "fork",
+  "mine",
+  "throne",
+  "labyrinth",
+  "gallery",
+  "chasm",
+  "pillars",
+  "vault",
+  "corner",
+  "caves",
+];
+const ORDINARY_PLANS = (Object.keys(FLOORPLANS) as FloorplanId[]).filter(
+  (p) => !FLOORPLANS[p].lord,
+);
+function planBag(bag: number) {
+  const rng = new Rng((Math.imul(bag + 1, 0x2f6b4a1d) ^ 0x7e1f) >>> 0);
+  return rng.shuffle([...ORDINARY_PLANS]);
+}
+/** Each depth's floorplan: fixed by its number, never the same twice running. */
+export function planFor(depth: number): FloorplanId {
+  const d = Math.max(1, Math.floor(depth));
+  if (d <= EARLY_PLANS.length) return EARLY_PLANS[d - 1];
+  if (isLordDepth(d)) {
+    const lordPlans: FloorplanId[] = ["throne", "vault", "labyrinth", "chasm"];
+    return lordPlans[(realmOf(d) - 1) % lordPlans.length];
+  }
+  // Later depths deal every ordinary plan from a shuffled bag.
+  const i = d - EARLY_PLANS.length - 1;
+  const n = ORDINARY_PLANS.length;
+  const bag = Math.floor(i / n);
+  const perm = planBag(bag);
+  const before =
+    bag > 0 ? planBag(bag - 1)[n - 1] : EARLY_PLANS[EARLY_PLANS.length - 1];
+  if (perm[0] === before) [perm[0], perm[1]] = [perm[1], perm[0]];
+  return perm[i % n];
 }
 
 /** Deterministic identity of a depth: its name, champion and mutators. */
@@ -195,6 +260,7 @@ export function depthInfo(depth: number): DepthInfo {
     realm: realmOf(d),
     realmName: realmName(realmOf(d)),
     lord,
+    plan: planFor(d),
   };
 }
 
@@ -219,23 +285,27 @@ const SEVERITY: Record<MutatorId, number> = {
   fortified: -2,
   armory: -1,
   rich: -1,
+  pilgrims: 2,
+  eclipse: 1,
+  leyLines: -1,
+  stockpile: -1,
 };
 
 /**
  * Past depth 8 the extra heat builds over the nights of a descent, so deep
- * runs end in a climax instead of on night three. 0 on night 1, 1 by night 7.
+ * runs end in a climax instead of on night three. 0 on night 1, 1 by night 9.
  */
-export const deepRamp = (n: number) => Math.min(1, Math.max(0, (n - 1) / 6));
+export const deepRamp = (n: number) => Math.min(1, Math.max(0, (n - 1) / 8));
 
 /** Difficulty that stacks with depth (the first eight steps are fixed). */
 export function heatFor(depth: number, night = NIGHTS) {
   const over = Math.max(0, depth - 8);
   const ramp = deepRamp(night);
-  const k = 0.4 + 0.6 * ramp;
+  const k = 0.3 + 0.7 * ramp;
   return {
-    hpMul: (depth >= 2 ? 1.15 : 1) * (1 + 0.07 * over * k),
+    hpMul: (depth >= 2 ? 1.15 : 1) * (1 + 0.06 * over * k),
     dmgMul: 1 + 0.04 * over * k,
-    partyBonus: (depth >= 3 ? 3 : 0) + 0.8 * over * (0.15 + 0.85 * ramp),
+    partyBonus: (depth >= 3 ? 3 : 0) + 0.65 * over * (0.1 + 0.9 * ramp),
     goldPenalty: depth >= 4 ? 30 : 0,
     /** Deep dungeons hold richer pickings to build the first nights with. */
     startBonus: Math.min(80, 5 * over),
@@ -245,6 +315,10 @@ export function heatFor(depth: number, night = NIGHTS) {
     honorGuard: depth >= 8 ? 6 + over : 0,
   };
 }
+
+/** Deep dungeons are roomier: +1 piece per three depths past 8, up to +6. */
+export const deepCapacity = (depth: number) =>
+  Math.min(6, Math.floor(Math.max(0, depth - 8) / 3));
 
 /** x^n by repeated multiplication, so every device agrees bit for bit. */
 function powi(x: number, n: number) {
@@ -278,16 +352,19 @@ export function newRun(opts: {
   const layout = generateLayout(opts.seed, opts.biome, {
     veins: mutators.includes("gilded") ? 2 : 1,
     variant: info.depth >= 2 ? opts.seed : undefined,
+    plan: info.plan,
   });
   let gold = TUNE.startGold;
   if (arch.id === "mason") gold += TUNE.masonGold;
   gold -= heat.goldPenalty;
   gold += heat.startBonus;
   if (omens.includes("poverty")) gold -= 40;
+  if (mutators.includes("stockpile")) gold += 60;
   const hoard =
     12 -
     heat.hoardPenalty +
-    (mutators.includes("ancient") ? 4 : 0) -
+    (mutators.includes("ancient") ? 4 : 0) +
+    (arch.id === "warden" ? 4 : 0) -
     (omens.includes("brittle") ? 4 : 0);
   const owned = [...arch.start];
   if (mutators.includes("armory")) {
@@ -369,34 +446,14 @@ export function migrateRun(raw: unknown): RunState | null {
   return out;
 }
 
-function firstTunnelTile(l: Layout, depth: number) {
-  // Walk the route from the entrance and return the tile `depth` steps in.
-  let cur = { ...l.entrance };
-  const seen = new Set<number>([idx(l, cur.x, cur.y)]);
-  for (let i = 0; i < depth; i++) {
-    let moved = false;
-    for (const [dx, dy] of [
-      [0, 1],
-      [1, 0],
-      [-1, 0],
-      [0, -1],
-    ]) {
-      const nx = cur.x + dx;
-      const ny = cur.y + dy;
-      if (
-        !inside(l, nx, ny) ||
-        l.tiles[idx(l, nx, ny)] !== T.Floor ||
-        seen.has(idx(l, nx, ny))
-      )
-        continue;
-      seen.add(idx(l, nx, ny));
-      cur = { x: nx, y: ny };
-      moved = true;
-      break;
-    }
-    if (!moved) return null;
-  }
-  return cur;
+/** The tile `steps` along the heroes' route from the stairs. */
+function firstTunnelTile(l: Layout, steps: number) {
+  const f = distanceField(l, l.hoard.x, l.hoard.y);
+  const route = pathTo(l, f, l.entrance.x, l.entrance.y);
+  const t = route[Math.min(steps, route.length - 3)];
+  if (!t || (t.x === l.hoard.x && t.y === l.hoard.y)) return null;
+  if (t.x === l.entrance.x && t.y === l.entrance.y) return null;
+  return t;
 }
 
 export function pieceCost(run: Pick<RunState, "architect">, id: PieceId) {
@@ -426,7 +483,7 @@ export function raidMods(
     RunState,
     "night" | "depth" | "mutators" | "architect" | "relics" | "tiers"
   > &
-    Partial<Pick<RunState, "omens">>,
+    Partial<Pick<RunState, "omens" | "blight">>,
 ): RaidMods {
   const n = run.night;
   const heat = heatFor(run.depth, n);
@@ -437,6 +494,7 @@ export function raidMods(
     powi(TUNE.abyssHp, a);
   if (has(run, "horde")) heroHp *= 0.85;
   if (omen(run, "ironWill")) heroHp *= 1.2;
+  heroHp *= 1 + 0.08 * (run.blight ?? 0);
   return {
     heroHp,
     heroDmg:
@@ -496,11 +554,38 @@ const ORDER: Record<HeroClass, number> = {
   thane: 0,
   shade: 0,
   revenant: 0,
+  witch: 0,
+  templar: 1,
+  monk: 3,
 };
 const MAX_PARTY = 10;
 
 /** The party that will attack on night n. Deterministic per run seed. */
 export function partyFor(
+  run: Pick<RunState, "seed" | "depth" | "mutators" | "boss"> &
+    Partial<Pick<RunState, "omens" | "bribe">>,
+  n: number,
+): PartyMember[] {
+  const party = rawParty(run, n);
+  // A turncoat paid at dawn: the strongest ordinary hero stays home.
+  if (run.bribe === n) {
+    let pick = -1;
+    let best = -1;
+    for (let i = 0; i < party.length; i++) {
+      const p = party[i];
+      if (isChampion(p.cls)) continue;
+      const v = HEROES[p.cls].points + (p.elite ? 3 : 0);
+      if (v > best) {
+        best = v;
+        pick = i;
+      }
+    }
+    if (pick >= 0 && party.length > 1) party.splice(pick, 1);
+  }
+  return party;
+}
+
+function rawParty(
   run: Pick<RunState, "seed" | "depth" | "mutators" | "boss"> &
     Partial<Pick<RunState, "omens">>,
   n: number,
@@ -522,6 +607,7 @@ export function partyFor(
     heat.partyBonus;
   if (abyss) budget += Math.min(10, abyssDepth(n) * 0.7);
   if (has(run, "horde")) budget *= 1.3;
+  if (omen(run, "teeming")) budget *= 1.2;
   const party: PartyMember[] = [];
   if (isChampionNight(n)) {
     party.push({ cls: championFor(run, n) });
@@ -530,6 +616,7 @@ export function partyFor(
       heat.honorGuard +
       (abyss ? 4 + abyssDepth(n) * 0.8 : 0) +
       (has(run, "horde") ? 3 : 0) +
+      (omen(run, "teeming") ? 3 : 0) +
       (omen(run, "wrath") ? 4 : 0);
   } else {
     // Showcase each class on the night it first arrives.
@@ -549,13 +636,17 @@ export function partyFor(
     force("rogue");
   if (has(run, "sappers") && n >= 3 && !party.some((p) => p.cls === "sapper"))
     force("sapper");
+  // Pilgrims: an extra healer on top of the usual ones (free, and beyond
+  // the usual cap on clerics).
+  const pilgrim = has(run, "pilgrims") && n >= 3 ? 1 : 0;
+  if (pilgrim && party.length < MAX_PARTY) party.push({ cls: "cleric" });
   let guard = 0;
   while (budget >= 3 && party.length < MAX_PARTY && guard++ < 60) {
     const count = (c: HeroClass) => party.filter((p) => p.cls === c).length;
     const options = avail.filter(
       (c) =>
         HEROES[c].points <= budget &&
-        !(c === "cleric" && count("cleric") >= (n >= 7 ? 2 : 1)) &&
+        !(c === "cleric" && count("cleric") >= (n >= 7 ? 2 : 1) + pilgrim) &&
         !(c === "bard" && count("bard") >= (n >= 12 ? 2 : 1)) &&
         !(c === "druid" && count("druid") >= (n >= 12 ? 2 : 1)) &&
         !(c === "sapper" && count("sapper") >= 2),
@@ -614,7 +705,10 @@ export function interestFor(run: Pick<RunState, "relics">, saved: number) {
 }
 
 const RARITY_WEIGHT = { common: 4, rare: 2, legendary: 1 } as const;
-export function rerollCost(run: Pick<RunState, "rerolls">) {
+export function rerollCost(
+  run: Pick<RunState, "rerolls"> & Partial<Pick<RunState, "relics">>,
+) {
+  if (run.relics?.includes("keys")) return 0;
   return 10 + run.rerolls * 10;
 }
 
@@ -759,7 +853,12 @@ export function canPlace(
 /** How many pieces the dungeon can hold tonight. */
 export function capacityFor(
   run: Pick<RunState, "night" | "relics" | "workshop"> &
-    Partial<Pick<RunState, "mutators" | "omens" | "cap" | "locked" | "trial">>,
+    Partial<
+      Pick<
+        RunState,
+        "mutators" | "omens" | "cap" | "locked" | "trial" | "extraCap" | "depth"
+      >
+    >,
 ) {
   if (run.workshop) return Infinity;
   if (run.cap !== undefined) return run.cap + (run.locked?.length ?? 0);
@@ -770,7 +869,9 @@ export function capacityFor(
     TUNE.capPerNight * Math.min(n, NIGHTS) +
     Math.min(10, Math.max(0, n - NIGHTS)) +
     (run.relics.includes("sprawl") ? 4 : 0) +
-    (run.mutators?.includes("fortified") ? 3 : 0) -
+    (run.mutators?.includes("fortified") ? 3 : 0) +
+    (run.extraCap ?? 0) +
+    deepCapacity(run.depth ?? 1) -
     (omen(run, "cramped") ? 3 : 0)
   );
 }

@@ -2363,6 +2363,12 @@ body.paused .hud[data-mode="raid"]::after {
 .choice.b-abyss {
   background: linear-gradient(#2a1838, #120a1a);
 }
+.choice.b-drowned {
+  background: linear-gradient(#173236, #0a1517);
+}
+.choice.b-ossuary {
+  background: linear-gradient(#332c24, #15110d);
+}
 .draft-actions {
   display: flex;
   gap: 10px;
@@ -2560,9 +2566,12 @@ body.paused .hud[data-mode="raid"]::after {
   font-size: 13px;
 }
 
-/* Title: three mode tiles */
+/* Title: four mode tiles, two by two */
 .title-menu .row2 {
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
+}
+.title-menu .row2 .btn.tile {
+  min-height: 70px;
 }
 @media (max-width: 420px) {
   .title-menu .row2 {
@@ -2779,4 +2788,308 @@ body.paused .hud[data-mode="raid"]::after {
   background: #3a2210;
   border-color: #c0703a;
   color: #ffb98a;
+}
+
+/* Crowns: three per depth */
+.crown-pips {
+  display: inline-flex;
+  gap: 2px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.crown-pips i {
+  display: inline-flex;
+  width: 14px;
+  height: 14px;
+  opacity: 0.25;
+  filter: grayscale(1);
+}
+.crown-pips i .ic {
+  width: 14px;
+  height: 14px;
+}
+.crown-pips i.on {
+  opacity: 1;
+  filter: none;
+}
+.crown-pips i.c2.on {
+  filter: hue-rotate(150deg) saturate(1.4);
+}
+.crown-pips i.c4.on {
+  filter: hue-rotate(250deg) saturate(1.6);
+}
+.plan-line {
+  margin: 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.plan-line b {
+  color: #9fe4ff;
+}
+
+/* Atlas of the Deep */
+.atlas {
+  width: min(560px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.atlas-sub {
+  margin: -4px 0 0;
+  font-size: 12px;
+}
+.atlas-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 14px;
+  background: linear-gradient(#24172f, #140c1b);
+  border: 1.5px solid #5a3a72;
+}
+.atlas-title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.atlas-title > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.atlas-title b {
+  font: 900 17px var(--display);
+  color: var(--gold);
+}
+.atlas-title .realm {
+  font: 800 10px var(--ui);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #d9b8ff;
+}
+.crown-goals {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+.crown-goal {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  padding: 6px 8px;
+  border-radius: 10px;
+  background: #1a1322;
+  border: 1px solid #33284a;
+  opacity: 0.7;
+  font-size: 12px;
+}
+.crown-goal span {
+  display: flex;
+  flex-direction: column;
+}
+.crown-goal small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.crown-goal .ic {
+  flex: none;
+  filter: grayscale(1);
+}
+.crown-goal.got {
+  opacity: 1;
+  border-color: var(--gold-2);
+  background: linear-gradient(#2e2412, #1a1322);
+}
+.crown-goal.got .ic {
+  filter: none;
+}
+.record-line {
+  margin: 0;
+  font-size: 12px;
+}
+.atlas-realms {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: min(38vh, 360px);
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.realm-row {
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(14, 10, 20, 0.7);
+  border: 1px solid var(--edge);
+}
+.realm-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.realm-head b {
+  font: 700 14px var(--display);
+  color: #e2c2ff;
+}
+.realm-head small {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--gold);
+  font-weight: 800;
+}
+.realm-nodes {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 6px;
+}
+.depth-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-height: 58px;
+  padding: 4px 2px;
+  border-radius: 10px;
+  background: #1a1322;
+  border: 1.5px solid #33284a;
+  color: var(--text);
+  cursor: pointer;
+  font: 900 18px var(--display);
+}
+.depth-node .crown-pips {
+  margin: 0;
+}
+.depth-node .crown-pips i,
+.depth-node .crown-pips i .ic {
+  width: 11px;
+  height: 11px;
+}
+.depth-node.won {
+  border-color: #6d5a88;
+  background: linear-gradient(#2a1f38, #1a1322);
+}
+.depth-node.lord {
+  border-color: #8a4a5a;
+}
+.depth-node.frontier {
+  box-shadow: 0 0 0 2px rgba(199, 155, 255, 0.5);
+}
+.depth-node.on {
+  border-color: var(--gold);
+  box-shadow: 0 0 12px rgba(255, 209, 102, 0.45);
+}
+.depth-node.locked {
+  opacity: 0.4;
+}
+.depth-node canvas {
+  width: 30px;
+  height: 30px;
+}
+@media (max-width: 520px) {
+  .crown-goals {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+  .crown-goal {
+    align-items: center;
+    padding: 4px 8px;
+  }
+  .crown-goal span {
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 0 6px;
+    align-items: baseline;
+  }
+  .atlas-realms {
+    max-height: none;
+    overflow: visible;
+  }
+  .atlas .mut-list .mut {
+    padding: 3px 6px;
+  }
+}
+@media (max-width: 420px) {
+  .depth-node {
+    min-height: 50px;
+    font-size: 16px;
+  }
+}
+
+/* Dawn visitors */
+.encounter {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: min(440px, 100%);
+}
+.encounter h2 {
+  margin: 0;
+}
+.encounter .sub {
+  margin: 0;
+  color: var(--muted);
+}
+.enc-art .ic.huge {
+  color: var(--gold);
+}
+.enc-purse {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 800;
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  gap: 4px;
+}
+.enc-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+.enc-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: linear-gradient(#2e2240, #1c1428);
+  border: 1.5px solid var(--edge-hi);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.enc-opt:hover:not([disabled]) {
+  border-color: var(--gold);
+}
+.enc-opt[disabled] {
+  opacity: 0.45;
+  cursor: default;
+}
+.enc-opt.leave {
+  background: transparent;
+  border-color: var(--edge);
+  justify-content: center;
+}
+.enc-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.enc-text small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.enc-opt .card-cost {
+  position: static;
+  flex: none;
+}
+.crowns-earned .unlock .ic {
+  color: var(--gold);
 }

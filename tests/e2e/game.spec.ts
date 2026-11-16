@@ -272,3 +272,82 @@ test("leaving mid-raid settles the night on return", async ({ page }) => {
   await page.locator(".card-btn").first().click();
   await expect(page.locator(".night-num")).toHaveText("2");
 });
+
+test("the atlas picks a depth and shows its floorplan", async ({ page }) => {
+  const errors = await fresh(page);
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "da.profile.v1",
+      JSON.stringify({
+        v: 2,
+        renown: 120,
+        runs: 4,
+        wins: 3,
+        maxDepth: 4,
+        bestDepth: 3,
+        tutorial: 99,
+      }),
+    ),
+  );
+  await page.reload();
+  await page.getByText("Atlas").click();
+  await expect(page.locator(".atlas")).toBeVisible();
+  // Conquered depths of old saves keep their first crown.
+  await expect(page.locator(".atlas-sub")).toContainText("3 crowns");
+  await page.locator('.depth-node[aria-label="Depth 2"]').click();
+  await expect(page.locator(".atlas-detail .plan-line")).toBeVisible();
+  await page.getByText("Descend to depth 2").click();
+  await expect(page.locator(".setup .depth-num")).toHaveText("2");
+  await page.getByText("Descend", { exact: true }).click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  const depth = await page.evaluate(
+    () =>
+      (window as unknown as { game: { run: { depth: number } } }).game.run
+        .depth,
+  );
+  expect(depth).toBe(2);
+  expect(errors).toEqual([]);
+});
+
+test("a dawn visitor is answered before building, even after a reload", async ({
+  page,
+}) => {
+  const errors = await fresh(page);
+  await page.getByText("New Descent").click();
+  await page.locator(".start-btn").click();
+  await finishRaid(page);
+  await expect(page.locator(".results")).toBeVisible({ timeout: 10_000 });
+  await page.evaluate(() => {
+    const g = (
+      window as unknown as {
+        game: { run: { encounter: unknown; night: number } };
+      }
+    ).game;
+    g.run.encounter = { id: "cache", night: g.run.night, price: 55 };
+  });
+  await page.locator(".results .btn.primary").click();
+  const gold = await page.evaluate(
+    () =>
+      (window as unknown as { game: { run: { gold: number } } }).game.run.gold,
+  );
+  await page.locator(".card-btn").first().click();
+  await expect(page.locator(".encounter")).toBeVisible();
+  await page.waitForTimeout(400);
+  await page.reload();
+  await page.getByText("Continue").click();
+  await expect(page.locator(".encounter")).toBeVisible();
+  await page.locator(".enc-opt").first().click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  await expect(page.locator(".encounter")).toHaveCount(0);
+  const after = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          game: { run: { gold: number; encounter: unknown } };
+        }
+      ).game.run,
+  );
+  expect(after.encounter).toBeNull();
+  expect(after.gold).toBeGreaterThanOrEqual(gold + 55);
+  expect(errors).toEqual([]);
+});

@@ -142,7 +142,11 @@ export function drawHero(
                 ? 1.3
                 : cls === "shade"
                   ? 1.16
-                  : 1;
+                  : cls === "witch"
+                    ? 1.22
+                    : cls === "templar"
+                      ? 1.06
+                      : 1;
   ctx.scale(big * look.face, big);
   // Windcallers float on a little whirlwind.
   if (cls === "windcaller") {
@@ -214,6 +218,14 @@ export function drawHero(
       [-0.16, -0.56, 0.1, -0.56, 0.02, -0.18, -0.24, -0.16],
       cls === "rogue" ? "#2f4a33" : "#4a6b2f",
     );
+  if (cls === "templar")
+    poly(ctx, [-0.18, -0.55, 0.12, -0.55, 0.06, -0.1, -0.3, -0.1], "#f0ead8");
+  if (cls === "witch")
+    poly(
+      ctx,
+      [-0.18, -0.58, 0.12, -0.58, 0.1, -0.02, -0.18, -0.06, -0.36, 0.02],
+      "#2a1838",
+    );
   if (loot) {
     circle(ctx, -0.2, -0.36, 0.13, "#c8a050");
     circle(ctx, -0.2, -0.36, 0.04, "#ffd166", false);
@@ -238,6 +250,9 @@ export function drawHero(
     thane: "#c8a040",
     shade: "#3a2c5a",
     revenant: "#2f5a52",
+    monk: "#e08a30",
+    templar: "#e8e0d0",
+    witch: "#4a2a5a",
   };
   if (
     cls === "mage" ||
@@ -246,7 +261,8 @@ export function drawHero(
     cls === "windcaller" ||
     cls === "druid" ||
     cls === "shade" ||
-    cls === "revenant"
+    cls === "revenant" ||
+    cls === "witch"
   ) {
     poly(
       ctx,
@@ -266,6 +282,9 @@ export function drawHero(
       circle(ctx, 0.0, -0.4, 0.035, "#e8d070", false);
     } else if (cls === "shade") {
       line(ctx, -0.12, -0.48, 0.1, -0.16, "#6a5aa0", 0.025);
+    } else if (cls === "witch") {
+      line(ctx, -0.2, -0.22, 0.2, -0.22, "#8fe07a", 0.03);
+      circle(ctx, 0, -0.42, 0.04, "#8fe07a", false);
     } else if (cls === "revenant") {
       line(ctx, -0.2, -0.2, 0.2, -0.2, "#9fe0c8", 0.03);
       for (const y of [-0.44, -0.38, -0.32])
@@ -316,11 +335,28 @@ export function drawHero(
       line(ctx, -0.17, -0.48, 0.17, -0.48, "#4a3220", 0.035);
       for (const x of [-0.1, 0, 0.1]) circle(ctx, x, -0.48, 0.03, "#3a3a44");
     }
+    if (cls === "monk") {
+      line(ctx, -0.16, -0.5, 0.14, -0.22, "#8a3a1a", 0.06);
+      line(ctx, -0.17, -0.3, 0.17, -0.3, "#5a2a14", 0.035);
+    }
+    if (cls === "templar") {
+      rrect(ctx, -0.03, -0.5, 0.06, 0.28, 0.01, "#c0303a", false);
+      rrect(ctx, -0.11, -0.43, 0.22, 0.06, 0.01, "#c0303a", false);
+    }
     if (cls === "thane") {
       ellipse(ctx, 0, -0.42, 0.14, 0.08, "#e8c860");
       line(ctx, -0.2, -0.28, 0.2, -0.28, "#5a3a1a", 0.05);
       circle(ctx, 0, -0.28, 0.045, "#ff6a5a");
     }
+  }
+  // Templars carry a tall white shield with a red cross.
+  if (cls === "templar") {
+    ctx.save();
+    ctx.translate(-0.19, -0.32);
+    rrect(ctx, -0.12, -0.2, 0.24, 0.36, 0.05, "#f4f0e2");
+    rrect(ctx, -0.025, -0.15, 0.05, 0.26, 0.01, "#c0303a", false);
+    rrect(ctx, -0.09, -0.07, 0.18, 0.05, 0.01, "#c0303a", false);
+    ctx.restore();
   }
   // Off-hand: shield for knights/paladins.
   if (cls === "knight" || cls === "paladin") {
@@ -352,7 +388,9 @@ export function drawHero(
         ? "#e8e0cc"
         : cls === "shade"
           ? "#b8a8d8"
-          : SKIN,
+          : cls === "witch"
+            ? "#c8d4b0"
+            : SKIN,
   );
   // Headgear.
   switch (cls) {
@@ -644,6 +682,41 @@ export function drawHero(
         "#9a8a5a",
       );
       break;
+    case "monk":
+      circle(ctx, -0.02, hy - 0.17, 0.05, "#2a1a14");
+      line(ctx, -0.13, hy - 0.05, 0.14, hy - 0.05, "#c0303a", 0.03);
+      break;
+    case "templar":
+      rrect(ctx, -0.16, hy - 0.2, 0.32, 0.32, 0.06, "#d8dde6");
+      line(ctx, 0.0, hy - 0.02, 0.15, hy - 0.02, "#1c1c24", 0.035);
+      rrect(ctx, 0.06, hy - 0.14, 0.025, 0.26, 0.005, "#c0303a", false);
+      break;
+    case "witch":
+      ellipse(ctx, 0, hy - 0.08, 0.28, 0.06, "#1e1028");
+      poly(
+        ctx,
+        [
+          -0.15,
+          hy - 0.09,
+          0.15,
+          hy - 0.09,
+          0.06,
+          hy - 0.36,
+          -0.1,
+          hy - 0.52,
+          -0.22,
+          hy - 0.5,
+          -0.08,
+          hy - 0.38,
+        ],
+        "#2e1a3e",
+      );
+      line(ctx, -0.13, hy - 0.13, 0.13, hy - 0.13, "#8fe07a", 0.03);
+      if (!FLASH) {
+        circle(ctx, 0.04, hy - 0.01, 0.024, "#a0ff80", false);
+        circle(ctx, 0.11, hy - 0.01, 0.024, "#a0ff80", false);
+      }
+      break;
     case "warlord":
       ctx.beginPath();
       ctx.arc(0, hy - 0.01, 0.17, Math.PI, 0);
@@ -675,7 +748,9 @@ export function drawHero(
     cls !== "windcaller" &&
     cls !== "shade" &&
     cls !== "revenant" &&
-    cls !== "sapper"
+    cls !== "sapper" &&
+    cls !== "templar" &&
+    cls !== "witch"
   )
     circle(ctx, 0.07, hy - 0.01, 0.022, "#1c1c24", false);
   // Weapon arm.
@@ -764,6 +839,20 @@ export function drawHero(
     case "revenant":
       line(ctx, 0, 0.02, 0.36, -0.26, "#9fe0c8", 0.05);
       line(ctx, 0.04, 0.06, 0.12, -0.08, "#5a4632", 0.05);
+      break;
+    case "monk":
+      line(ctx, -0.14, 0.12, 0.3, -0.3, "#8a5a2a", 0.045);
+      circle(ctx, 0.0, 0.0, 0.05, SKIN);
+      break;
+    case "templar":
+      line(ctx, 0, 0, 0.1, -0.04, "#d8dde6", 0.06);
+      line(ctx, 0.08, -0.04, 0.4, -0.24, "#eef2f8", 0.055);
+      line(ctx, 0.05, 0.03, 0.13, -0.11, "#c0303a", 0.04);
+      break;
+    case "witch":
+      line(ctx, -0.02, 0.18, 0.12, -0.42, "#3a2a1a", 0.045);
+      line(ctx, 0.12, -0.42, 0.2, -0.5, "#3a2a1a", 0.03);
+      circle(ctx, 0.16, -0.5, 0.065, FLASH ? "#fff" : "#7ae060");
       break;
     case "warlord":
       line(ctx, 0, 0.04, 0.34, -0.24, "#4a3020", 0.06);
@@ -1182,6 +1271,85 @@ export function drawMonster(
       ellipse(ctx, 0.06, -0.26, 0.04, 0.06, "#1a2a3a", false);
       break;
     }
+    case "basilisk": {
+      ctx.scale(1.2, 1.2);
+      const sway = walking
+        ? Math.sin(look.walk) * 0.04
+        : Math.sin(t * 2) * 0.02;
+      ctx.translate(0, -bob * 0.4);
+      // Tail curling behind.
+      ctx.beginPath();
+      ctx.moveTo(-0.08, -0.12);
+      ctx.quadraticCurveTo(-0.42, -0.08 + sway, -0.4, -0.26);
+      ctx.lineWidth = 0.1;
+      ctx.strokeStyle = OUT;
+      ctx.stroke();
+      ctx.lineWidth = 0.07;
+      ctx.strokeStyle = col("#6f9a44");
+      ctx.stroke();
+      ctx.lineWidth = 0.04;
+      // Legs.
+      for (const lx of [-0.14, 0.08]) {
+        const k = walking ? Math.sin(look.walk + lx * 9) * 0.04 : 0;
+        rrect(ctx, lx + k, -0.14, 0.07, 0.14, 0.03, "#5a7a34");
+      }
+      ellipse(ctx, -0.02, -0.22, 0.24, 0.13, "#8fbf5a");
+      if (!FLASH)
+        for (const sx of [-0.14, -0.04, 0.06])
+          poly(
+            ctx,
+            [sx - 0.04, -0.32, sx, -0.42, sx + 0.04, -0.32],
+            "#c8e070",
+            false,
+          );
+      // Head with a crown of horns, reared up.
+      ctx.save();
+      ctx.translate(0.18, -0.34);
+      ctx.rotate(-0.2 + sw * 0.4);
+      ellipse(ctx, 0.06, -0.06, 0.13, 0.09, "#8fbf5a");
+      poly(ctx, [-0.02, -0.12, -0.06, -0.24, 0.04, -0.13], "#e8d890");
+      poly(ctx, [0.06, -0.14, 0.08, -0.26, 0.12, -0.13], "#e8d890");
+      const gazing = look.atk >= 0 && look.atk < 0.5;
+      circle(
+        ctx,
+        0.11,
+        -0.08,
+        0.035,
+        FLASH ? "#fff" : gazing ? "#fffbe0" : "#ffe14a",
+        false,
+      );
+      circle(ctx, 0.12, -0.08, 0.014, "#1a1420", false);
+      line(ctx, 0.12, -0.01, 0.2, 0.0, "#c0303a", 0.02);
+      ctx.restore();
+      break;
+    }
+    case "kobold": {
+      ctx.scale(0.86, 0.86);
+      const leg = walking ? Math.sin(look.walk) * 0.07 : 0;
+      rrect(ctx, -0.1 + leg, -0.16, 0.08, 0.16, 0.03, "#7a4a2a");
+      rrect(ctx, 0.02 - leg, -0.16, 0.08, 0.16, 0.03, "#7a4a2a");
+      ctx.translate(0, -bob);
+      // Tool pack.
+      rrect(ctx, -0.26, -0.48, 0.14, 0.22, 0.03, "#6a4a2a");
+      line(ctx, -0.24, -0.5, -0.3, -0.62, "#a7adb8", 0.03);
+      rrect(ctx, -0.14, -0.42, 0.28, 0.28, 0.08, "#8a5a32");
+      line(ctx, -0.14, -0.3, 0.14, -0.3, "#4a2a14", 0.03);
+      circle(ctx, 0.02, -0.56, 0.14, "#d08a4a");
+      poly(ctx, [0.1, -0.56, 0.3, -0.52, 0.12, -0.48], "#d08a4a");
+      poly(ctx, [-0.1, -0.62, -0.2, -0.78, -0.02, -0.66], "#b06a34");
+      // Goggles.
+      if (!FLASH) {
+        line(ctx, -0.1, -0.6, 0.14, -0.6, "#3a2a1a", 0.03);
+        circle(ctx, 0.09, -0.6, 0.04, "#9fd8ff");
+      }
+      ctx.save();
+      ctx.translate(0.12, -0.34);
+      ctx.rotate(sw);
+      line(ctx, 0, 0, 0.2, -0.12, "#6b4a2a", 0.04);
+      rrect(ctx, 0.14, -0.2, 0.12, 0.08, 0.02, "#a7adb8");
+      ctx.restore();
+      break;
+    }
   }
   ctx.restore();
   FLASH = false;
@@ -1449,6 +1617,80 @@ export function drawTrap(ctx: C, kind: TrapId, look: TrapLook) {
     }
     case "pylon": {
       drawPylon(ctx, look);
+      break;
+    }
+    case "beartrap": {
+      center();
+      const shut = look.cooling || look.used;
+      ellipse(ctx, 0, 0.08, 0.34, 0.2, "#2a2420", false);
+      ellipse(ctx, 0, 0.06, 0.3, 0.17, "#5a5048");
+      ellipse(ctx, 0, 0.06, 0.18, 0.09, "#3a332e", false);
+      if (shut) {
+        // Jaws closed: a single toothed seam.
+        line(ctx, -0.3, 0.02, 0.3, 0.02, "#8a8278", 0.06);
+        for (let i = -2; i <= 2; i++)
+          poly(
+            ctx,
+            [i * 0.11 - 0.04, 0.0, i * 0.11, 0.07, i * 0.11 + 0.04, 0.0],
+            "#d8d0c4",
+            false,
+          );
+      } else {
+        for (const sy of [-1, 1]) {
+          ctx.beginPath();
+          ctx.ellipse(
+            0,
+            0.06,
+            0.3,
+            0.17,
+            0,
+            sy < 0 ? Math.PI : 0,
+            sy < 0 ? 0 : Math.PI,
+          );
+          ctx.lineWidth = 0.05;
+          ctx.strokeStyle = col("#9a928a");
+          ctx.stroke();
+          for (let i = -3; i <= 3; i++) {
+            const a = (i / 3.4) * (Math.PI / 2);
+            const x = Math.sin(a) * 0.29;
+            const y = 0.06 + sy * Math.cos(a) * 0.16;
+            poly(
+              ctx,
+              [x - 0.03, y, x, y - sy * 0.07, x + 0.03, y],
+              "#e8e0d4",
+              false,
+            );
+          }
+        }
+        ctx.lineWidth = 0.04;
+        circle(ctx, 0, 0.06, 0.05, "#b8a888");
+      }
+      break;
+    }
+    case "lantern": {
+      center();
+      ellipse(ctx, 0, 0.3, 0.2, 0.07, "#1a1820", false);
+      line(ctx, 0, 0.3, 0, -0.38, "#3a3440", 0.06);
+      line(ctx, 0, -0.38, 0.18, -0.38, "#3a3440", 0.045);
+      line(ctx, 0.16, -0.38, 0.16, -0.28, "#5a5460", 0.02);
+      const glow = !look.disabled;
+      const pulse = look.active ? 1 : 0.55 + Math.sin(look.t * 3) * 0.12;
+      ctx.save();
+      ctx.translate(0.16, -0.12);
+      rrect(ctx, -0.1, -0.16, 0.2, 0.26, 0.05, "#2e3a44");
+      rrect(
+        ctx,
+        -0.065,
+        -0.12,
+        0.13,
+        0.18,
+        0.03,
+        glow ? `rgba(122,224,255,${0.45 + pulse * 0.5})` : "#2a3038",
+        false,
+      );
+      if (glow) circle(ctx, 0, -0.03, 0.035 + pulse * 0.02, "#e8fbff", false);
+      poly(ctx, [-0.1, -0.16, 0, -0.24, 0.1, -0.16], "#3a4650");
+      ctx.restore();
       break;
     }
     case "keg": {

@@ -42,9 +42,12 @@ import {
   type Layout,
 } from "./game/grid";
 import {
+  allPlansWon,
   award,
   awardStats,
   defaultProfile,
+  realmSwept,
+  recordDepthWin,
   loadProfile,
   loadRun,
   loadWorkshop,
@@ -109,10 +112,17 @@ import { Renderer, type Ghost, type Scene } from "./render/world";
 import { h, heroArt, icon, pieceArt } from "./ui/dom";
 import { Hud } from "./ui/hud";
 import {
+  rollEncounter,
+  resolveEncounter,
+  settleWager,
+} from "./game/encounters";
+import {
   Layer,
+  atlasScreen,
   challengeResult,
   codexScreen,
   draftScreen,
+  encounterScreen,
   featsScreen,
   gameOverScreen,
   messageScreen,
@@ -148,6 +158,7 @@ const CHAMPION_FEAT: Record<ChampionId, string> = {
   thane: "thane",
   shade: "shade",
   revenant: "revenant",
+  witch: "witch",
 };
 const SOURCE_NAMES: Record<string, string> = {
   spikes: "Spike Plate",
@@ -184,6 +195,12 @@ const SOURCE_NAMES: Record<string, string> = {
   spider: "Cave Spider",
   golem: "Stone Golem",
   thorns: "Thorned Hides",
+  beartrap: "Bear Trap",
+  lantern: "Soul Lantern",
+  basilisk: "Basilisk",
+  kobold: "Kobold Tinker",
+  spite: "Spiteful Dead",
+  thornCrown: "Crown of Thorns",
 };
 const ALL_PIECES = Object.keys(PIECES) as PieceId[];
 
@@ -249,6 +266,8 @@ export class Game {
   /** Trial being played, and its layout as last built (kept between tries). */
   private trial: TrialDef | null = null;
   private raidToasts = new Set<string>();
+  /** Warning for the next build phase: diggers shortened the route. */
+  private tunnelNote: string | null = null;
   private dirtySave = false;
   private tutorialTimer = 0;
   private closeTitle: (() => void) | null = null;
@@ -408,6 +427,7 @@ export class Game {
         onDaily: () => this.startDaily(),
         onWorkshop: () => this.openWorkshop(),
         onTrials: () => this.openTrials(),
+        onAtlas: () => this.openAtlas(),
         onCodex: () =>
           this.layer.open(
             codexScreen(this.profile, () => this.layer.close()),
@@ -511,7 +531,20 @@ export class Game {
     );
   }
 
-  private openSetup(confirmed = false) {
+  private openAtlas() {
+    this.layer.open(
+      atlasScreen(
+        this.profile,
+        (depth) => {
+          this.layer.close();
+          this.openSetup(false, depth);
+        },
+        () => this.layer.close(),
+      ),
+      { modal: true, onDismiss: () => this.layer.close() },
+    );
+  }
+  private openSetup(confirmed = false, depth?: number) {
     // Never silently replace a run: finished runs show their legend first,
     // unfinished ones ask before being abandoned.
     if (this.run && !confirmed) {
@@ -533,7 +566,7 @@ export class Game {
                 this.abandonRun(() => {
                   // Rebuild the title (its Continue button is stale) under setup.
                   this.showTitle();
-                  this.openSetup(true);
+                  this.openSetup(true, depth);
                 });
               },
               "btn danger",
@@ -566,12 +599,13 @@ export class Game {
       return;
     }
     this.layer.open(
-      setupScreen(this.profile, go, () => this.layer.close()),
+      setupScreen(this.profile, go, () => this.layer.close(), depth),
       { modal: true, onDismiss: () => this.layer.close() },
     );
   }
   /** Settle an unfinished run as a loss (renown for nights survived). */
   private abandonRun(then: () => void) {
+    this.tunnelNote = null;
     const run = this.run;
     if (!run) return then();
     run.victory = false;
@@ -611,6 +645,7 @@ export class Game {
       return;
     }
     this.enterBuild("run");
+    if (this.run.encounter) this.openEncounter(() => this.afterDraft());
   }
   private startDaily() {
     const key = todayKey();
@@ -879,7 +914,7 @@ export class Game {
   }
 
   // ---------------- build phase ----------------
-  private enterBuild(kind: "run" | "workshop" | "trial") {
+  private enterBuild(kind: "run" | "workshop" | "trial", debutInfo = true) {
     const run = this.run!;
     this.kind = kind;
     this.phase = "build";
@@ -915,13 +950,13 @@ export class Game {
             : isEliteNight(run, run.night)
               ? "Elite raid"
               : "Tonight",
-        run.mutators.includes("fog") && !champ,
+        this.fogged(run) && !champ,
       );
       this.hud.setStartLabel(champ ? "Face the Champion" : "Begin Night");
-      const debut = run.mutators.includes("fog")
+      const debut = this.fogged(run)
         ? undefined
         : this.party.find((p) => !this.profile.seen.includes(p.cls));
-      if (debut && this.profile.tutorial >= 99) {
+      if (debut && debutInfo && !run.encounter && this.profile.tutorial >= 99) {
         setTimeout(() => this.heroInfo(debut.cls, true), 500);
       }
     } else if (kind === "trial") {
@@ -946,6 +981,10 @@ export class Game {
     if (kind === "run") this.tutorialStep();
   }
 
+  /** Thick Fog and the Blindfold omen hide who is coming. */
+  private fogged(run: RunState) {
+    return run.mutators.includes("fog") || !!run.omens?.includes("blind");
+  }
   private refreshBuild() {
     const run = this.run;
     if (!run) return;
@@ -1519,10 +1558,8 @@ export class Game {
     if (!this.raid || !this.availablePowers().includes(p)) return;
     if (this.power === p) {
       this.power = null;
-    } else if (this.raid.dread < powerCost(p, this.raid.setup.mods.relics)) {
-      this.deny(
-        `Needs ${powerCost(p, this.raid.setup.mods.relics)} dread. Slay heroes to gain more.`,
-      );
+    } else if (this.raid.dread < this.costOf(p)) {
+      this.deny(`Needs ${this.costOf(p)} dread. Slay heroes to gain more.`);
       return;
     } else if ((this.powerCd[p] ?? 0) > 0) {
       audio.play("deny");
@@ -1540,7 +1577,7 @@ export class Game {
     if (!raid || !p || raid.finished) return;
     if (!inside(raid.layout, x, y)) return;
     const def = POWERS[p];
-    if (!raid.cast(p, x, y, powerCost(p, raid.setup.mods.relics))) return;
+    if (!raid.cast(p, x, y, this.costOf(p))) return;
     this.powerCd[p] = def.cooldown;
     this.power = null;
     this.updatePowersHud();
@@ -1548,6 +1585,11 @@ export class Game {
     if (p === "chill") audio.play("chill");
     if (p === "sinkhole") audio.play("trapdoor", { pitch: 0.7 });
     this.tutorialStep("cast");
+  }
+  /** Dread a power costs in this raid (relics and Eclipse). */
+  private costOf(p: PowerId) {
+    const m = this.raid!.setup.mods;
+    return powerCost(p, m.relics, m.mutators ?? []);
   }
   private updatePowersHud() {
     if (!this.raid) return;
@@ -1558,6 +1600,7 @@ export class Game {
       this.powerCd,
       this.power,
       this.raid.setup.mods.relics,
+      this.raid.setup.mods.mutators ?? [],
     );
     this.hud.setDread(this.raid.dread, this.raid.dreadMax);
   }
@@ -1646,6 +1689,8 @@ export class Game {
     const income = dawnIncome(run, stars);
     const interest = interestFor(run, this.goldBefore);
     run.gold += result.gold + income + interest;
+    const stake = run.wager?.night === run.night ? run.wager.stake : 0;
+    const wagerWon = settleWager(run, run.night, stars);
     run.history.push({
       night: run.night,
       stars,
@@ -1655,8 +1700,20 @@ export class Game {
       gold: result.gold,
       combo: result.bestCombo,
     });
-    // Tunnels dug by dwarves remain.
+    // Tunnels dug by dwarves remain, and a shorter route is worth a warning.
+    this.tunnelNote = null;
+    const routeBefore = routeLength(run.layout);
+    let dugTiles = 0;
+    for (let i = 0; i < raid.layout.tiles.length; i++)
+      if (raid.layout.tiles[i] !== run.layout.tiles[i]) dugTiles++;
     run.layout.tiles = raid.layout.tiles.slice();
+    const routeAfter = routeLength(run.layout);
+    const tunnels =
+      dugTiles > 0
+        ? { dug: dugTiles, from: routeBefore, to: routeAfter }
+        : null;
+    if (tunnels && routeAfter < routeBefore)
+      this.tunnelNote = `Diggers cut your route from ${routeBefore} to ${routeAfter} tiles. Fill their tunnels!`;
     run.fresh = [];
     p.kills += result.killed;
     p.bestCombo = Math.max(p.bestCombo, result.bestCombo);
@@ -1683,6 +1740,7 @@ export class Game {
       run.night++;
       run.draft = draftFor(run, this.draftPool(run));
       run.phase = "draft";
+      run.encounter = rollEncounter(run);
     }
     saveRun(run);
     saveProfile(p);
@@ -1698,6 +1756,8 @@ export class Game {
         stolen,
         income,
         interest,
+        wager: stake ? { stake, won: wagerWon } : null,
+        tunnels,
         heroes: this.party.length,
         final,
         feats,
@@ -1803,23 +1863,11 @@ export class Game {
           run.phase = "build";
           saveRun(run);
           this.layer.closeAll();
-          this.hud.setMode("build", "run");
-          this.refreshBuild();
-          audio.play("dawn");
-          const late = this.takeFeats();
-          for (const f of late) {
-            this.hud.toast(`Feat: ${f.name} · +${f.renown} renown`, "gold");
-            audio.play("feat");
+          if (run.encounter) {
+            this.openEncounter(() => this.afterDraft());
+            return;
           }
-          for (const u of this.takeUnlocks(late))
-            this.hud.toast(`Unlocked: ${u}`, "gold");
-          saveProfile(this.profile);
-          this.tutorialStep();
-          const debut = this.party.find(
-            (q) => !this.profile.seen.includes(q.cls),
-          );
-          if (debut && this.profile.tutorial >= 99)
-            setTimeout(() => this.heroInfo(debut.cls, true), 300);
+          this.afterDraft();
         },
         {
           cost,
@@ -1838,6 +1886,56 @@ export class Game {
       { modal: true },
     );
   }
+  /** Back to building once the boon (and any visitor) is settled. */
+  private afterDraft() {
+    const run = this.run!;
+    this.hud.setMode("build", "run");
+    this.refreshBuild();
+    audio.play("dawn");
+    if (this.tunnelNote) {
+      this.hud.toast(this.tunnelNote, "bad");
+      this.tunnelNote = null;
+    }
+    const late = this.takeFeats();
+    for (const f of late) {
+      this.hud.toast(`Feat: ${f.name} · +${f.renown} renown`, "gold");
+      audio.play("feat");
+    }
+    for (const u of this.takeUnlocks(late))
+      this.hud.toast(`Unlocked: ${u}`, "gold");
+    saveProfile(this.profile);
+    this.tutorialStep();
+    const debut = this.fogged(run)
+      ? undefined
+      : this.party.find((q) => !this.profile.seen.includes(q.cls));
+    if (debut && this.profile.tutorial >= 99)
+      setTimeout(() => this.heroInfo(debut.cls, true), 300);
+  }
+  /** A dawn visitor: answer before building. */
+  private openEncounter(then: () => void) {
+    const run = this.run!;
+    const e = run.encounter;
+    if (!e) return then();
+    this.hud.setMode("hidden");
+    this.hud.hideInfo();
+    audio.play("card");
+    this.layer.open(
+      encounterScreen(run, e, (i) => {
+        const msg = resolveEncounter(run, e, i);
+        if (msg) {
+          this.profile.stats.encounters++;
+          this.hud.toast(msg, "good");
+        }
+        saveRun(run);
+        saveProfile(this.profile);
+        this.layer.closeAll();
+        // The visitor may have changed tonight's party, gold or capacity.
+        this.enterBuild("run", false);
+        then();
+      }),
+      { modal: true },
+    );
+  }
 
   /**
    * Pay out renown and records for a finished (or abandoned) run, once.
@@ -1851,6 +1949,7 @@ export class Game {
       unlocked: [] as string[],
       newDepth: null as number | null,
       dailyText: null as string | null,
+      crowns: [] as string[],
     };
     if (run.settled) {
       out.renown = run.renownPaid;
@@ -1878,11 +1977,19 @@ export class Game {
         if (run.depth >= 15) this.earn("depth15");
         if (run.depth >= 20) this.earn("depth20");
         if (run.depth >= 30) this.earn("depth30");
+        if (run.depth >= 40) this.earn("depth40");
+        if (run.depth >= 50) this.earn("depth50");
         const heat = runHeat(run);
         p.bestHeat = Math.max(p.bestHeat, heat);
         if (heat >= 3) this.earn("heat3");
         if (heat >= 8) this.earn("heat8");
         if (heat >= 15) this.earn("heat15");
+        if (heat >= 20) this.earn("heat20");
+        const crowns = recordDepthWin(p, run);
+        out.crowns = crowns.crowns.filter((c) => c !== "Conquered");
+        out.renown += crowns.renown;
+        if (realmSwept(p, run.depth)) this.earn("realmSweep");
+        if (allPlansWon(p)) this.earn("planner");
       }
       if (run.history.every((r) => r.stolen === 0)) this.earn("perfect");
       if (run.history.every((r) => r.stars === 3)) this.earn("allStars");
@@ -1909,6 +2016,7 @@ export class Game {
   }
 
   private finishRun() {
+    this.tunnelNote = null;
     const run = this.run!;
     const firstTime = !run.settled;
     const settled = this.settleRun(run);
@@ -1923,8 +2031,10 @@ export class Game {
       ).map((u) => u.label);
     let totalRenown = settled.renown + feats.reduce((a, f) => a + f.renown, 0);
     // A reload shows the same payout as the first time this screen appeared.
-    if (firstTime) run.lastPaid = totalRenown;
-    else totalRenown = run.lastPaid ?? totalRenown;
+    if (firstTime) {
+      run.lastPaid = totalRenown;
+      run.lastCrowns = settled.crowns;
+    } else totalRenown = run.lastPaid ?? totalRenown;
     saveProfile(this.profile);
     // Keep the finished run saved until the player leaves the legend screen,
     // so a reload returns here without paying out twice.
@@ -1949,6 +2059,7 @@ export class Game {
         unlocked: settled.unlocked,
         feats,
         newDepth: settled.newDepth,
+        crowns: run.lastCrowns ?? [],
         dailyText:
           settled.dailyText ??
           (run.daily && this.profile.daily[run.daily]
@@ -1978,6 +2089,7 @@ export class Game {
     run.night = NIGHTS + 1;
     run.draft = draftFor(run, this.draftPool(run));
     run.phase = "draft";
+    run.encounter = rollEncounter(run);
     saveRun(run);
     audio.play("nightfall");
     this.layer.closeAll();
@@ -2455,6 +2567,101 @@ export class Game {
       }
     };
     switch (e.k) {
+      case "deflect":
+        audio.play("disarm", { pitch: 1.6, volume: 0.6 });
+        fx.text(e.x, e.y - 0.8, "Deflect", "#f0c070", 0.7);
+        fx.burst(e.x + 0.15, e.y - 0.4, 6, {
+          color: "#fff2c0",
+          kind: "spark",
+          size: 0.03,
+          speed: 2.5,
+          up: 1,
+          max: 0.25,
+          add: true,
+        });
+        this.once("deflect", () =>
+          this.hud.toast(
+            "Monks turn aside every other dart and arrow. Use melee and fire.",
+            "bad",
+          ),
+        );
+        break;
+      case "jinx":
+        audio.play("magic", { pitch: 0.4, volume: 0.9 });
+        r.shake(0.1);
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.2,
+          size1: 3,
+          max: 0.6,
+          color: "rgba(150,230,110,0.8)",
+        });
+        for (const q of e.pts) {
+          this.trail(e.x, e.y - 0.5, q.x, q.y, "rgba(170,120,230,0.85)", 6);
+          fx.text(q.x, q.y - 0.3, "Jinxed", "#c890ff", 0.7);
+        }
+        this.once("jinx", () =>
+          this.hud.toast(
+            "Morrigan jinxes your traps near her. Spread them out and send monsters.",
+            "bad",
+          ),
+        );
+        break;
+      case "gaze":
+        audio.play("freeze", { pitch: 0.6 });
+        this.trail(
+          e.x,
+          e.y - 0.45,
+          e.tx,
+          e.ty - 0.4,
+          "rgba(255,240,140,0.9)",
+          9,
+        );
+        fx.text(e.tx, e.ty - 0.9, "Stone!", "#e8e0b0", 0.8);
+        fx.burst(e.tx, e.ty - 0.4, 10, {
+          color: "#b8b0a0",
+          kind: "dot",
+          size: 0.04,
+          speed: 1.2,
+          up: 0.6,
+          max: 0.5,
+        });
+        break;
+      case "repair":
+        audio.play("place", { pitch: 1.3, volume: 0.7 });
+        fx.text(e.x, e.y - 0.3, "Repaired", "#ffb870", 0.8);
+        fx.burst(e.x, e.y, 8, {
+          color: "#ffd18a",
+          kind: "spark",
+          size: 0.03,
+          speed: 2,
+          up: 1,
+          max: 0.3,
+          add: true,
+        });
+        break;
+      case "soul":
+        audio.play("magic", { pitch: 1.4, volume: 0.5 });
+        this.trail(e.x, e.y - 0.4, e.tx, e.ty, "rgba(140,230,255,0.9)", 8);
+        break;
+      case "spite":
+        fx.burst(e.x, e.y - 0.3, 12, {
+          color: "rgba(200,120,255,0.8)",
+          kind: "spark",
+          size: 0.04,
+          speed: 2.4,
+          up: 0.8,
+          max: 0.35,
+          add: true,
+        });
+        break;
+      case "snap":
+        audio.play("spike", { pitch: 0.7 });
+        r.shake(0.14);
+        fx.text(e.x, e.y - 0.9, "Snap!", "#d8d0c4", 0.7);
+        break;
       case "spawn":
         fx.burst(e.x, e.y + 0.3, 8, {
           color: "rgba(200,210,255,0.5)",
@@ -3255,6 +3462,29 @@ export class Game {
     }
   }
 
+  /** A short-lived streak of particles from one point to another. */
+  private trail(
+    x0: number,
+    y0: number,
+    x1: number,
+    y1: number,
+    color: string,
+    n: number,
+  ) {
+    for (let i = 0; i <= n; i++) {
+      const k = i / n;
+      this.renderer.fx.emit({
+        x: x0 + (x1 - x0) * k,
+        y: y0 + (y1 - y0) * k,
+        kind: "dot",
+        size: 0.06,
+        size1: 0.01,
+        max: 0.25 + k * 0.2,
+        color,
+        add: true,
+      });
+    }
+  }
   private trapFx(kind: string, x: number, y: number, dir: number) {
     const fx = this.renderer.fx;
     const r = this.renderer;

@@ -25,11 +25,13 @@ npm run dev        # http://localhost:5173
 
 ## Modes
 
-- **Descent:** the ten-night run at a chosen depth. Each depth is a named dungeon with its own champion and twists, and depths get harder without limit. Every five depths form a **realm** whose last depth is guarded by a **realm lord** (Thane Brannoc, Nyx the Shade, the Hollow King). Earns renown, which unlocks pieces, architects, biomes and powers, and raises your architect rank.
-- **Omens:** after your first victory, add curses to a descent (tougher heroes, fewer pieces, no powers…). Each omen adds heat, and every point of heat adds 10% renown.
+- **Descent:** the ten-night run at a chosen depth. Each depth is a named dungeon with its own **floorplan** (cellars, long galleries, forks, pillared halls, labyrinths, rifts, sealed vaults, caverns, mines, throne halls…), champion and twists, and depths get harder without limit. Every five depths form a **realm** whose last depth is guarded by a **realm lord** (Thane Brannoc, Nyx the Shade, the Hollow King, Morrigan the Witch Queen). Earns renown, which unlocks pieces, architects, biomes and powers, and raises your architect rank.
+- **Atlas of the Deep:** every depth you have opened, realm by realm, with three **crowns** to earn on each: Conquered, Flawless (no treasure lost) and Ascendant (won at heat 5+). Pick any open depth to replay it.
+- **Dawn visitors:** some mornings a visitor knocks with an optional deal: a merchant's relic, a goblin smith's half-price upgrade, a cursed shrine, a turncoat who skips tonight's raid, an imp's three-star wager, and more.
+- **Omens:** after your first victory, add any of 13 curses to a descent (tougher heroes, fewer pieces, no powers, a blindfold…). Each omen adds heat, up to 26, and every point of heat adds 10% renown.
 - **Abyss:** after a victory, keep going. Every night is harder, and a champion comes every fifth night. How deep can your dungeon go?
 - **Trials:** 25 handcrafted puzzle dungeons in six chapters. Each has a fixed party, fixed blueprints, a gold budget and no powers. Earn stars for defending, slaying everyone, and doing it under par.
-- **Feats:** 47 long-term goals that pay renown.
+- **Feats:** 57 long-term goals that pay renown.
 - **Daily:** the same seeded run for everyone each UTC day, with a shareable result line.
 - **Workshop:** unlimited gold and every unlocked piece. Test against any night's party and share your dungeon as a link.
 - **Raid links:** opening `#raid=…` lets you assemble a hero party and try to rob a friend's dungeon.
@@ -50,6 +52,8 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rat
   - `grid.ts`: maps, pathfinding and line of sight.
   - `sim.ts`: the raid simulation.
   - `run.ts`: depths, nights, the abyss, economy, capacity and drafts.
+  - `floorplans.ts`: the map archetype of each depth.
+  - `encounters.ts`: dawn visitors and their offers.
   - `share.ts`: link codec.
   - `trials.ts`: the handcrafted trial dungeons.
   - `profile.ts`: saves, migrations and feats.

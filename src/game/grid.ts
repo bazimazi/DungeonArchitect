@@ -7,8 +7,10 @@ import {
   MAP_W,
   T,
   type Biome,
+  type FloorplanId,
   type PieceId,
 } from "./defs";
+import { CARVERS, type Carve } from "./floorplans";
 
 export interface Placed {
   id: number;
@@ -216,11 +218,11 @@ export function routeLength(l: Layout): number {
   return v < Infinity ? Math.round(v / 10) : -1;
 }
 
-/** Procedural starting dungeon: bedrock frame, pillars, veins, a starter tunnel. */
+/** Procedural starting dungeon: bedrock frame, a floorplan, pillars and veins. */
 export function generateLayout(
   seed: number,
   biome: Biome["id"],
-  opts: { veins?: number; variant?: number } = {},
+  opts: { veins?: number; variant?: number; plan?: FloorplanId } = {},
 ): Layout {
   const rng = new Rng(seed);
   const b = BIOMES[biome];
@@ -235,40 +237,25 @@ export function generateLayout(
     tiles[y * w] = T.Bedrock;
     tiles[y * w + w - 1] = T.Bedrock;
   }
-  // Deeper dungeons move the stairs and the hoard around.
-  let ex = 5;
-  let hx0 = 5;
-  if (opts.variant !== undefined) {
-    const v = new Rng((opts.variant ^ 0x3c6ef372) >>> 0);
-    ex = v.pick([3, 5, 7]);
-    hx0 = v.pick([3, 5, 7]);
-  }
-  const entrance = { x: ex, y: 0 };
-  const hoard = { x: hx0, y: h - 3 };
-  const l: Layout = { w, h, tiles, entrance, hoard, objects: [], nextId: 1 };
-  const set = (x: number, y: number, t: number) => {
-    if (x > 0 && y > 0 && x < w - 1 && y < h - 1) tiles[idx(l, x, y)] = t;
+  const carve: Carve = {
+    w,
+    h,
+    tiles,
+    rng,
+    set: (x, y, t) => {
+      if (x > 0 && y > 0 && x < w - 1 && y < h - 1) tiles[y * w + x] = t;
+    },
+    get: (x, y) => tiles[y * w + x],
   };
-  tiles[idx(l, ex, 0)] = T.Floor;
-  // Hoard chamber.
-  for (let y = hoard.y - 1; y <= hoard.y + 1; y++)
-    for (let x = hoard.x - 1; x <= hoard.x + 1; x++) set(x, y, T.Floor);
-  // Starter tunnel: down, jog sideways, down into a small hall, then to the hoard.
-  let side = rng.chance(0.5) ? -1 : 1;
-  const jog = rng.int(2, 3);
-  if (ex + side * jog < 2 || ex + side * jog > w - 3) side = -side;
-  const jx = ex + side * jog;
-  for (let y = 1; y <= 3; y++) set(ex, y, T.Floor);
-  for (let x = Math.min(ex, jx); x <= Math.max(ex, jx); x++) set(x, 3, T.Floor);
-  for (let y = 3; y <= 6; y++) set(jx, y, T.Floor);
-  // Small hall.
-  const hx = Math.max(2, Math.min(w - 4, jx - 1));
-  for (let y = 6; y <= 8; y++)
-    for (let x = hx; x <= hx + 2; x++) set(x, y, T.Floor);
-  const cx = hx + 1;
-  for (let y = 8; y <= hoard.y - 1; y++) set(cx, y, T.Floor);
-  for (let x = Math.min(cx, hoard.x); x <= Math.max(cx, hoard.x); x++)
-    set(x, hoard.y - 1, T.Floor);
+  const plan = opts.plan ?? "cellar";
+  // Deeper dungeons move the stairs and the hoard around.
+  const variant =
+    opts.variant !== undefined
+      ? new Rng((opts.variant ^ 0x3c6ef372) >>> 0)
+      : null;
+  const shape = CARVERS[plan](carve, variant);
+  const { entrance, hoard } = shape;
+  const l: Layout = { w, h, tiles, entrance, hoard, objects: [], nextId: 1 };
 
   // Bedrock pillars and gold veins in untouched rock only.
   const rockCells = () => {
@@ -279,8 +266,8 @@ export function generateLayout(
     return out;
   };
   const cells = rng.shuffle(rockCells());
-  let pillars = b.pillars;
-  let veins = Math.round(b.veins * (opts.veins ?? 1));
+  let pillars = Math.round(b.pillars * (shape.pillars ?? 1));
+  let veins = Math.round(b.veins * (opts.veins ?? 1) * (shape.veins ?? 1));
   for (const c of cells) {
     if (pillars > 0) {
       const x = c % w;
