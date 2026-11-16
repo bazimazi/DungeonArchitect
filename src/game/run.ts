@@ -8,23 +8,31 @@ import {
   ARCHITECTS,
   BASE_POOL,
   CHAMPIONS,
+  CLASSIC_CHAMPIONS,
   DIG_COST,
   HEROES,
   HERO_DEPTH,
   MUTATORS,
   NIGHTS,
   PIECES,
+  REALM_LORDS,
   RELICS,
   T,
   TUNE,
   VEIN_GOLD,
   depthName,
+  heatOf,
+  heatRenown,
   isChampion,
+  isLordDepth,
+  realmName,
+  realmOf,
   type ArchitectId,
   type BiomeId,
   type ChampionId,
   type HeroClass,
   type MutatorId,
+  type OmenId,
   type PieceId,
   type PowerId,
   type RelicId,
@@ -94,6 +102,20 @@ export interface RunState {
   lastPaid?: number;
   /** Workshop sandbox: unlimited gold and space. */
   workshop?: boolean;
+  /** Omens chosen for this descent (heat raises renown). */
+  omens?: OmenId[];
+  /** Night whose raid started but never finished (resolved on return). */
+  raiding?: number;
+  /** Pieces given for free (sell for nothing). */
+  gifts?: number[];
+  /** Trial being played (see trials.ts). */
+  trial?: string;
+  /** Trial piece limit (placed pieces, fixed ones excluded). */
+  cap?: number;
+  /** Digging is not allowed (trials). */
+  noDig?: boolean;
+  /** Fixed pieces that can't be moved or sold (trials). */
+  locked?: number[];
 }
 
 export const HERO_ARRIVAL: Record<HeroClass, number> = {
@@ -107,9 +129,14 @@ export const HERO_ARRIVAL: Record<HeroClass, number> = {
   berserker: 6,
   windcaller: 6,
   inquisitor: 7,
+  sapper: 5,
+  druid: 6,
   paladin: 10,
   archmage: 10,
   warlord: 10,
+  thane: 10,
+  shade: 10,
+  revenant: 10,
 };
 
 // ---------------- depths ----------------
@@ -118,42 +145,100 @@ export interface DepthInfo {
   name: string;
   boss: ChampionId;
   mutators: MutatorId[];
+  realm: number;
+  realmName: string;
+  /** The realm's final depth, guarded by a realm lord. */
+  lord: boolean;
 }
 
 /** Deterministic identity of a depth: its name, champion and mutators. */
 export function depthInfo(depth: number): DepthInfo {
   const d = Math.max(1, Math.floor(depth));
   const rng = new Rng((Math.imul(d, 0x2c1b3c6d) ^ 0x51ed270b) >>> 0);
-  const count = d <= 1 ? 0 : d <= 4 ? 1 : d <= 8 ? 2 : d <= 15 ? 3 : 4;
+  const lord = isLordDepth(d);
+  const count =
+    d <= 1 ? 0 : d <= 4 ? 1 : d <= 8 ? 2 : d <= 15 ? 3 : d <= 30 ? 4 : 5;
+  // Twists are drawn to a severity budget so neighbouring depths feel alike
+  // in difficulty. A lord's depth is the realm's peak and gets a lighter hand.
+  let budget =
+    (d <= 1 ? 0 : d <= 4 ? 2 : d <= 8 ? 4 : d <= 15 ? 5 : d <= 30 ? 7 : 9) -
+    (lord ? 2 : 0);
   const eligible = (Object.keys(MUTATORS) as MutatorId[]).filter(
     (m) => MUTATORS[m].from <= d,
   );
   const bad = rng.shuffle(eligible.filter((m) => !MUTATORS[m].good));
   const good = rng.shuffle(eligible.filter((m) => MUTATORS[m].good));
   const mutators: MutatorId[] = [];
-  // Roughly one depth in three softens the blow with a blessing.
+  // Roughly one depth in three softens the blow with a blessing, which pays
+  // for a harsher twist.
   const withGood = count > 0 && good.length > 0 && rng.chance(0.35);
+  if (withGood) budget += -SEVERITY[good[0]];
   for (const m of bad) {
     if (mutators.length >= count - (withGood ? 1 : 0)) break;
+    if (SEVERITY[m] > budget) continue;
     mutators.push(m);
+    budget -= SEVERITY[m];
   }
   if (withGood) mutators.push(good[0]);
+  // Realm lords guard every fifth depth; ordinary depths cycle the classic
+  // champions early and every champion later.
+  const boss = lord
+    ? REALM_LORDS[(d / 5 - 1) % REALM_LORDS.length]
+    : d < 10
+      ? CLASSIC_CHAMPIONS[(d - 1) % CLASSIC_CHAMPIONS.length]
+      : CHAMPIONS[(d * 5) % CHAMPIONS.length];
   return {
     depth: d,
     name: depthName(d),
-    boss: CHAMPIONS[(d - 1) % CHAMPIONS.length],
+    boss,
     mutators,
+    realm: realmOf(d),
+    realmName: realmName(realmOf(d)),
+    lord,
   };
 }
 
+/** How hard each twist hits (blessings are negative). */
+const SEVERITY: Record<MutatorId, number> = {
+  ironclad: 3,
+  horde: 3,
+  bloodMoon: 3,
+  scouts: 3,
+  haste: 2,
+  famine: 2,
+  blessed: 3,
+  thieves: 2,
+  sappers: 2,
+  fireproof: 2,
+  undying: 2,
+  zealots: 1,
+  hardRock: 1,
+  fog: 1,
+  gilded: -2,
+  ancient: -2,
+  fortified: -2,
+  armory: -1,
+  rich: -1,
+};
+
+/**
+ * Past depth 8 the extra heat builds over the nights of a descent, so deep
+ * runs end in a climax instead of on night three. 0 on night 1, 1 by night 7.
+ */
+export const deepRamp = (n: number) => Math.min(1, Math.max(0, (n - 1) / 6));
+
 /** Difficulty that stacks with depth (the first eight steps are fixed). */
-export function heatFor(depth: number) {
+export function heatFor(depth: number, night = NIGHTS) {
   const over = Math.max(0, depth - 8);
+  const ramp = deepRamp(night);
+  const k = 0.4 + 0.6 * ramp;
   return {
-    hpMul: (depth >= 2 ? 1.15 : 1) * (1 + 0.07 * over),
-    dmgMul: 1 + 0.04 * over,
-    partyBonus: (depth >= 3 ? 3 : 0) + 0.8 * over,
+    hpMul: (depth >= 2 ? 1.15 : 1) * (1 + 0.07 * over * k),
+    dmgMul: 1 + 0.04 * over * k,
+    partyBonus: (depth >= 3 ? 3 : 0) + 0.8 * over * (0.15 + 0.85 * ramp),
     goldPenalty: depth >= 4 ? 30 : 0,
+    /** Deep dungeons hold richer pickings to build the first nights with. */
+    startBonus: Math.min(80, 5 * over),
     moreElites: depth >= 5,
     hoardPenalty: depth >= 6 ? 3 : 0,
     speed: depth >= 7 ? 1.1 : 1,
@@ -170,6 +255,11 @@ function powi(x: number, n: number) {
 
 const has = (run: Pick<RunState, "mutators">, m: MutatorId) =>
   run.mutators.includes(m);
+const omen = (run: Partial<Pick<RunState, "omens">>, o: OmenId) =>
+  !!run.omens?.includes(o);
+/** Heat chosen for a run through omens. */
+export const runHeat = (run: Partial<Pick<RunState, "omens">>) =>
+  heatOf(run.omens ?? []);
 
 export function newRun(opts: {
   seed: number;
@@ -178,7 +268,9 @@ export function newRun(opts: {
   depth: number;
   daily?: string | null;
   powers: PowerId[];
+  omens?: OmenId[];
 }): RunState {
+  const omens = [...new Set(opts.omens ?? [])];
   const arch = ARCHITECTS.find((a) => a.id === opts.architect) ?? ARCHITECTS[0];
   const info = depthInfo(opts.depth);
   const heat = heatFor(info.depth);
@@ -190,7 +282,13 @@ export function newRun(opts: {
   let gold = TUNE.startGold;
   if (arch.id === "mason") gold += TUNE.masonGold;
   gold -= heat.goldPenalty;
-  const hoard = 12 - heat.hoardPenalty + (mutators.includes("ancient") ? 4 : 0);
+  gold += heat.startBonus;
+  if (omens.includes("poverty")) gold -= 40;
+  const hoard =
+    12 -
+    heat.hoardPenalty +
+    (mutators.includes("ancient") ? 4 : 0) -
+    (omens.includes("brittle") ? 4 : 0);
   const owned = [...arch.start];
   if (mutators.includes("armory")) {
     const rng = new Rng(opts.seed ^ 0x5bd1e995);
@@ -215,7 +313,7 @@ export function newRun(opts: {
     owned,
     tiers: {},
     relics: arch.id === "lich" ? ["restless"] : [],
-    powers: opts.powers,
+    powers: omens.includes("silence") ? [] : opts.powers,
     draft: null,
     history: [],
     victory: null,
@@ -224,10 +322,12 @@ export function newRun(opts: {
     renownPaid: 0,
     dug: 0,
     rerolls: 0,
+    omens,
   };
   // A first trap on the starter tunnel so night one teaches itself.
   const spot = firstTunnelTile(layout, 4);
   if (spot) {
+    run.gifts = [layout.nextId];
     const firstTrap =
       arch.start.find((p) => p === "spikes") ??
       arch.start.find((p) => PIECES[p].kind === "trap" && p !== "lure") ??
@@ -325,39 +425,46 @@ export function raidMods(
   run: Pick<
     RunState,
     "night" | "depth" | "mutators" | "architect" | "relics" | "tiers"
-  >,
+  > &
+    Partial<Pick<RunState, "omens">>,
 ): RaidMods {
   const n = run.night;
-  const heat = heatFor(run.depth);
+  const heat = heatFor(run.depth, n);
   const a = abyssDepth(n);
   let heroHp =
     (1 + TUNE.hpPerNight * (Math.min(n, NIGHTS) - 1)) *
     heat.hpMul *
     powi(TUNE.abyssHp, a);
   if (has(run, "horde")) heroHp *= 0.85;
+  if (omen(run, "ironWill")) heroHp *= 1.2;
   return {
     heroHp,
     heroDmg:
       (1 + TUNE.dmgPerNight * (Math.min(n, NIGHTS) - 1)) *
       heat.dmgMul *
       powi(TUNE.abyssDmg, a),
-    heroSpeed: heat.speed * (has(run, "haste") ? 1.12 : 1),
+    heroSpeed:
+      heat.speed *
+      (has(run, "haste") ? 1.12 : 1) *
+      (omen(run, "swift") ? 1.1 : 1),
     monsterHp: run.architect === "lich" ? 1.25 : 1,
     monsterDmg: run.architect === "beastmaster" ? 1.15 : 1,
     arch: run.architect,
     mutators: run.mutators,
     relics: run.relics,
     tiers: run.tiers,
+    omens: run.omens ?? [],
   };
 }
 
 export function isEliteNight(
-  run: Pick<RunState, "depth" | "mutators">,
+  run: Pick<RunState, "depth" | "mutators"> & Partial<Pick<RunState, "omens">>,
   n: number,
 ) {
   if (n > NIGHTS) return true;
   if (n === 4 || n === 7) return true;
-  if (has(run, "bloodMoon") && n >= 3 && n < NIGHTS) return true;
+  if (has(run, "bloodMoon") && n >= 4 && n < NIGHTS) return true;
+  if (omen(run, "veterans") && n >= 3 && n < NIGHTS) return true;
   return heatFor(run.depth).moreElites && (n === 3 || n === 6 || n === 9);
 }
 /** Champion nights: the last night of a descent and every fifth abyss night. */
@@ -382,19 +489,25 @@ const ORDER: Record<HeroClass, number> = {
   ranger: 6,
   windcaller: 7,
   mage: 8,
-  bard: 9,
-  cleric: 10,
+  sapper: 9,
+  druid: 10,
+  bard: 11,
+  cleric: 12,
+  thane: 0,
+  shade: 0,
+  revenant: 0,
 };
 const MAX_PARTY = 10;
 
 /** The party that will attack on night n. Deterministic per run seed. */
 export function partyFor(
-  run: Pick<RunState, "seed" | "depth" | "mutators" | "boss">,
+  run: Pick<RunState, "seed" | "depth" | "mutators" | "boss"> &
+    Partial<Pick<RunState, "omens">>,
   n: number,
 ): PartyMember[] {
   if (n === 1) return [{ cls: "knight" }];
   if (n === 2) return [{ cls: "knight" }, { cls: "rogue" }];
-  const heat = heatFor(run.depth);
+  const heat = heatFor(run.depth, n);
   const rng = new Rng((run.seed ^ Math.imul(n, 0x9e3779b1)) >>> 0);
   const abyss = n > NIGHTS;
   const avail = (Object.keys(HERO_ARRIVAL) as HeroClass[]).filter(
@@ -416,7 +529,8 @@ export function partyFor(
       10 +
       heat.honorGuard +
       (abyss ? 4 + abyssDepth(n) * 0.8 : 0) +
-      (has(run, "horde") ? 3 : 0);
+      (has(run, "horde") ? 3 : 0) +
+      (omen(run, "wrath") ? 4 : 0);
   } else {
     // Showcase each class on the night it first arrives.
     for (const debut of avail.filter((c) => HERO_ARRIVAL[c] === n)) {
@@ -425,6 +539,16 @@ export function partyFor(
       budget -= HEROES[debut].points;
     }
   }
+  // Mutators that guarantee a class.
+  const force = (c: HeroClass) => {
+    if (party.length >= MAX_PARTY || HEROES[c].points > budget + 2) return;
+    party.push({ cls: c });
+    budget -= HEROES[c].points;
+  };
+  if (has(run, "thieves") && n >= 2 && !party.some((p) => p.cls === "rogue"))
+    force("rogue");
+  if (has(run, "sappers") && n >= 3 && !party.some((p) => p.cls === "sapper"))
+    force("sapper");
   let guard = 0;
   while (budget >= 3 && party.length < MAX_PARTY && guard++ < 60) {
     const count = (c: HeroClass) => party.filter((p) => p.cls === c).length;
@@ -432,7 +556,9 @@ export function partyFor(
       (c) =>
         HEROES[c].points <= budget &&
         !(c === "cleric" && count("cleric") >= (n >= 7 ? 2 : 1)) &&
-        !(c === "bard" && count("bard") >= (n >= 12 ? 2 : 1)),
+        !(c === "bard" && count("bard") >= (n >= 12 ? 2 : 1)) &&
+        !(c === "druid" && count("druid") >= (n >= 12 ? 2 : 1)) &&
+        !(c === "sapper" && count("sapper") >= 2),
     );
     if (!options.length) break;
     const c = rng.pick(options);
@@ -444,7 +570,13 @@ export function partyFor(
     let made = 0;
     for (const p of party) {
       if (made >= elites) break;
-      if (isChampion(p.cls) || p.cls === "cleric" || p.cls === "bard") continue;
+      if (
+        isChampion(p.cls) ||
+        p.cls === "cleric" ||
+        p.cls === "bard" ||
+        p.cls === "druid"
+      )
+        continue;
       p.elite = true;
       made++;
     }
@@ -463,7 +595,8 @@ export function starsFor(r: RaidResult, stolenThisNight: number) {
 }
 
 export function dawnIncome(
-  run: Pick<RunState, "night" | "relics" | "mutators">,
+  run: Pick<RunState, "night" | "relics" | "mutators"> &
+    Partial<Pick<RunState, "omens">>,
   stars: number,
 ) {
   let base =
@@ -471,6 +604,7 @@ export function dawnIncome(
     TUNE.tributePerNight * run.night +
     stars * TUNE.tributePerStar;
   if (has(run, "famine")) base = Math.round(base * 0.75);
+  if (omen(run, "poverty")) base = Math.round(base * 0.8);
   return base + (run.relics.includes("goldRush") ? 10 : 0);
 }
 /** Royal Treasury: interest on the gold saved going into the night. */
@@ -526,7 +660,8 @@ export function draftFor(
     if (roll < 0.5 && pool.length) add({ type: "piece", id: rng.pick(pool) });
     else if (tierable.length) add({ type: "tier", id: rng.pick(tierable) });
   }
-  for (let i = 0; i < 8 && cards.length < 3; i++) {
+  const size = omen(run, "meager") ? 2 : 3;
+  for (let i = 0; i < 8 && cards.length < size; i++) {
     const roll = rng.next();
     if (roll < 0.6 && relics.length) add({ type: "relic", id: pickRelic() });
     else if (tierable.length) add({ type: "tier", id: rng.pick(tierable) });
@@ -564,7 +699,7 @@ export type BuildError =
 
 export function canDig(run: RunState, x: number, y: number): BuildError | null {
   const l = run.layout;
-  if (!inside(l, x, y)) return "protected";
+  if (!inside(l, x, y) || run.noDig) return "protected";
   const t = l.tiles[idx(l, x, y)];
   if (t === T.Floor) return "floor";
   if (t === T.Bedrock) return "protected";
@@ -623,15 +758,20 @@ export function canPlace(
 
 /** How many pieces the dungeon can hold tonight. */
 export function capacityFor(
-  run: Pick<RunState, "night" | "relics" | "workshop">,
+  run: Pick<RunState, "night" | "relics" | "workshop"> &
+    Partial<Pick<RunState, "mutators" | "omens" | "cap" | "locked" | "trial">>,
 ) {
   if (run.workshop) return Infinity;
+  if (run.cap !== undefined) return run.cap + (run.locked?.length ?? 0);
+  if (run.trial) return Infinity;
   const n = run.night;
   return (
     TUNE.capBase +
     TUNE.capPerNight * Math.min(n, NIGHTS) +
     Math.min(10, Math.max(0, n - NIGHTS)) +
-    (run.relics.includes("sprawl") ? 4 : 0)
+    (run.relics.includes("sprawl") ? 4 : 0) +
+    (run.mutators?.includes("fortified") ? 3 : 0) -
+    (omen(run, "cramped") ? 3 : 0)
   );
 }
 export function place(
@@ -650,6 +790,7 @@ export function place(
 export function sellValue(run: RunState, objId: number) {
   const o = run.layout.objects.find((q) => q.id === objId);
   if (!o) return 0;
+  if (run.gifts?.includes(objId)) return 0;
   const c = pieceCost(run, o.kind);
   return run.fresh.includes(objId) || run.relics.includes("miser")
     ? c
@@ -669,9 +810,13 @@ export function renownFor(run: RunState) {
   const abyss = run.history.filter((h) => h.night > NIGHTS);
   const stars = descent.reduce((a, h) => a + h.stars, 0);
   const won = run.victory || run.endless;
-  let total = descent.length + stars + (won ? 12 + (run.depth - 1) * 4 : 0);
+  let total =
+    descent.length +
+    stars +
+    (won ? 12 + (run.depth - 1) * 4 + (isLordDepth(run.depth) ? 10 : 0) : 0);
   for (const h of abyss) total += 2 + h.stars;
-  return total;
+  // Omens multiply everything the run earns.
+  return Math.round(total * heatRenown(runHeat(run)));
 }
 
 /** Display name for the run's dungeon. */

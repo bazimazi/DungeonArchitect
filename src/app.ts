@@ -17,11 +17,14 @@ import {
   TICK,
   T,
   isChampion,
+  powerCost,
   roman,
   type ArchitectId,
   type BiomeId,
+  type ChampionId,
   type FeatDef,
   type HeroClass,
+  type OmenId,
   type PieceId,
   type PowerId,
 } from "./game/defs";
@@ -78,6 +81,7 @@ import {
   reinforceCost,
   renownFor,
   rerollCost,
+  runHeat,
   runTitle,
   sell,
   sellValue,
@@ -91,7 +95,16 @@ import {
   shareUrl,
   type SharedDungeon,
 } from "./game/share";
-import { Raid, type PartyMember, type RaidEvent } from "./game/sim";
+import { Raid, simulate, type PartyMember, type RaidEvent } from "./game/sim";
+import {
+  TRIALS,
+  TRIAL_CHAPTERS,
+  trialLayout,
+  trialSetup,
+  trialStars,
+  trialStarsTotal,
+  type TrialDef,
+} from "./game/trials";
 import { Renderer, type Ghost, type Scene } from "./render/world";
 import { h, heroArt, icon, pieceArt } from "./ui/dom";
 import { Hud } from "./ui/hud";
@@ -110,9 +123,12 @@ import {
   settingsScreen,
   setupScreen,
   titleScreen,
+  trialBriefScreen,
+  trialResultScreen,
+  trialsScreen,
 } from "./ui/screens";
 
-type Kind = "title" | "run" | "workshop" | "challenge";
+type Kind = "title" | "run" | "workshop" | "challenge" | "trial";
 type Phase = "title" | "build" | "raid" | "after";
 type Tool = PieceId | "dig" | null;
 interface Snapshot {
@@ -123,7 +139,16 @@ interface Snapshot {
   dug: number;
 }
 
-const SPEEDS = [1, 2, 3];
+const SPEEDS = [1, 2, 3, 4];
+/** Feat earned for slaying each champion. */
+const CHAMPION_FEAT: Record<ChampionId, string> = {
+  paladin: "aldric",
+  archmage: "veyla",
+  warlord: "grukk",
+  thane: "thane",
+  shade: "shade",
+  revenant: "revenant",
+};
 const SOURCE_NAMES: Record<string, string> = {
   spikes: "Spike Plate",
   darts: "Dart Idol",
@@ -148,6 +173,13 @@ const SOURCE_NAMES: Record<string, string> = {
   chill: "Grave Chill",
   risen: "Risen dead",
   minislime: "Slimelings",
+  crusher: "Crusher",
+  totem: "Hex Totem",
+  gargoyle: "Gargoyle",
+  wraith: "Wraith",
+  sinkhole: "Sinkhole",
+  stormcall: "Stormcaller",
+  sapper: "Sapper's bomb",
   pylon: "Storm Pylon",
   spider: "Cave Spider",
   golem: "Stone Golem",
@@ -214,6 +246,8 @@ export class Game {
     last: HeroClass[];
   } | null = null;
   private workshopNight = 3;
+  /** Trial being played, and its layout as last built (kept between tries). */
+  private trial: TrialDef | null = null;
   private raidToasts = new Set<string>();
   private dirtySave = false;
   private tutorialTimer = 0;
@@ -373,6 +407,7 @@ export class Game {
         onNew: () => this.openSetup(),
         onDaily: () => this.startDaily(),
         onWorkshop: () => this.openWorkshop(),
+        onTrials: () => this.openTrials(),
         onCodex: () =>
           this.layer.open(
             codexScreen(this.profile, () => this.layer.close()),
@@ -513,9 +548,11 @@ export class Game {
       biome: BiomeId;
       architect: ArchitectId;
       depth: number;
+      omens?: OmenId[];
     }) => {
       const seed = Math.floor(Math.random() * 2 ** 31);
       this.run = newRun({ seed, ...o, powers: unlockedPowers(this.profile) });
+      this.profile.omens = [...(o.omens ?? [])];
       this.profile.runs++;
       saveProfile(this.profile);
       saveRun(this.run);
@@ -559,6 +596,12 @@ export class Game {
     if (this.run.victory !== null) {
       this.kind = "run";
       this.finishRun();
+      return;
+    }
+    if (this.run.raiding === this.run.night && this.run.phase === "build") {
+      // The player left mid-raid: the night played out without them.
+      this.enterBuild("run");
+      this.resolveAbsentRaid();
       return;
     }
     if (this.run.phase === "draft" && this.run.draft) {
@@ -642,6 +685,110 @@ export class Game {
             .join("")
         : "";
     return `Dungeon Architect · Daily ${key}\n${d.won ? `Survived all ${NIGHTS} nights` : `Fell on night ${d.nights}`} · ${d.stars}★ · hoard ${d.hoard}\n${strip}\n${location.href.split("#")[0]}`;
+  }
+
+  // ---------------- trials ----------------
+  private openTrials() {
+    this.layer.open(
+      trialsScreen(
+        this.profile,
+        (t) => {
+          this.layer.closeAll();
+          this.startTrial(t);
+        },
+        () => this.layer.close(),
+      ),
+      { modal: true, onDismiss: () => this.layer.close() },
+    );
+  }
+  private startTrial(t: TrialDef) {
+    const run = newRun({
+      seed: hashString(`trial-${t.id}`),
+      biome: BIOME_IDS[(t.chapter - 1) % BIOME_IDS.length],
+      architect: "mason",
+      depth: t.depth ?? 1,
+      powers: [],
+    });
+    run.layout = trialLayout(t);
+    run.gold = t.gold;
+    run.owned = [...t.pieces];
+    run.tiers = { ...(t.tiers ?? {}) };
+    run.relics = [...(t.relics ?? [])];
+    run.night = t.night;
+    run.mutators = [];
+    run.hoard = run.hoardMax = t.hoard ?? 12;
+    run.trial = t.id;
+    run.cap = t.cap;
+    run.noDig = t.dig === false;
+    run.locked = run.layout.objects.map((o) => o.id);
+    run.gifts = [...run.locked];
+    run.fresh = [];
+    this.trial = t;
+    this.run = run;
+    this.layer.closeAll();
+    this.enterBuild("trial");
+    this.layer.open(
+      trialBriefScreen(t, this.profile.trials[t.id] ?? 0, () =>
+        this.layer.close(),
+      ),
+      { modal: true, onDismiss: () => this.layer.close() },
+    );
+  }
+  private afterTrial(raid: Raid, result: ReturnType<Raid["result"]>) {
+    const t = this.trial!;
+    const p = this.profile;
+    const spent = t.gold - this.goldBefore;
+    const out = trialStars(t, result.stolen, result.escaped, spent);
+    const prev = p.trials[t.id] ?? 0;
+    const renownBefore = p.renown;
+    let newStars = 0;
+    if (out.stars > prev) {
+      newStars = out.stars - prev;
+      p.trials[t.id] = out.stars;
+      p.renown += newStars;
+    }
+    p.stats.trialStars = trialStarsTotal(p.trials);
+    p.kills += result.killed;
+    p.stats.kills += result.killed;
+    const feats = this.takeFeats();
+    saveProfile(p);
+    audio.play(out.stars >= 3 ? "victory" : out.stars ? "dawn" : "defeat");
+    if (out.stars >= 3) this.coinRain(raid.layout);
+    for (const u of unlocksBetween(renownBefore, p.renown))
+      this.hud.toast(`Unlocked: ${u.label}`, "gold");
+    if (feats.length) setTimeout(() => audio.play("feat"), 900);
+    const i = TRIALS.indexOf(t);
+    const next = TRIALS[i + 1] ?? null;
+    const nextOpen =
+      next &&
+      trialStarsTotal(p.trials) >=
+        (next.chapter === t.chapter ? 0 : this.chapterNeeds(next.chapter));
+    this.layer.open(
+      trialResultScreen({
+        t,
+        ...out,
+        spent,
+        newStars,
+        feats,
+        next: nextOpen ? next : null,
+        onRetry: () => {
+          this.layer.closeAll();
+          this.enterBuild("trial");
+        },
+        onNext: () => {
+          this.layer.closeAll();
+          if (next) this.startTrial(next);
+        },
+        onList: () => {
+          this.showTitle();
+          this.openTrials();
+        },
+      }),
+      { modal: true },
+    );
+  }
+  private chapterNeeds(n: number) {
+    return TRIAL_CHAPTERS.find((c) => c.n === n)?.needs ?? 0;
   }
 
   // ---------------- workshop ----------------
@@ -732,7 +879,7 @@ export class Game {
   }
 
   // ---------------- build phase ----------------
-  private enterBuild(kind: "run" | "workshop") {
+  private enterBuild(kind: "run" | "workshop" | "trial") {
     const run = this.run!;
     this.kind = kind;
     this.phase = "build";
@@ -745,7 +892,9 @@ export class Game {
     this.nightTarget = 0;
     audio.intensity = 0;
     this.hud.setMode("build", kind);
-    this.hud.showShare(kind !== "run" || run.history.length > 0);
+    this.hud.showShare(
+      kind === "workshop" || (kind === "run" && run.history.length > 0),
+    );
     this.renderer.resetView();
     this.layout();
     if (kind === "run") {
@@ -755,7 +904,7 @@ export class Game {
         NIGHTS,
         run.history.map((r) => r.stars),
       );
-      this.hud.setMutators(run.mutators);
+      this.hud.setMutators(run.mutators, run.omens ?? []);
       const champ = isChampionNight(run.night);
       this.hud.setParty(
         this.party,
@@ -766,12 +915,22 @@ export class Game {
             : isEliteNight(run, run.night)
               ? "Elite raid"
               : "Tonight",
+        run.mutators.includes("fog") && !champ,
       );
       this.hud.setStartLabel(champ ? "Face the Champion" : "Begin Night");
-      const debut = this.party.find((p) => !this.profile.seen.includes(p.cls));
+      const debut = run.mutators.includes("fog")
+        ? undefined
+        : this.party.find((p) => !this.profile.seen.includes(p.cls));
       if (debut && this.profile.tutorial >= 99) {
         setTimeout(() => this.heroInfo(debut.cls, true), 500);
       }
+    } else if (kind === "trial") {
+      const t = this.trial!;
+      this.hud.setMutators([]);
+      this.party = t.party.map((p) => ({ ...p }));
+      this.hud.setNightLabel(t.id);
+      this.hud.setParty(this.party, `Trial · ${t.name}`);
+      this.hud.setStartLabel("Begin Trial");
     } else {
       this.hud.setMutators([]);
       this.party = partyFor(
@@ -1144,14 +1303,15 @@ export class Game {
         ),
       );
     const value = this.kind === "workshop" ? 0 : sellValue(run, o.id);
-    actions.push(
-      h(
-        "button",
-        { class: "btn small danger", onclick: () => this.sellSelected() },
-        icon("sell"),
-        this.kind === "workshop" ? " Remove" : ` Sell +${value}`,
-      ),
-    );
+    if (!run.locked?.includes(o.id))
+      actions.push(
+        h(
+          "button",
+          { class: "btn small danger", onclick: () => this.sellSelected() },
+          icon("sell"),
+          this.kind === "workshop" ? " Remove" : ` Sell +${value}`,
+        ),
+      );
     this.hud.showInfo(
       [
         h(
@@ -1183,6 +1343,10 @@ export class Game {
     if (!run || this.selected === null) return;
     const o = run.layout.objects.find((q) => q.id === this.selected);
     if (!o || !PIECES[o.kind].directional) return;
+    if (run.locked?.includes(o.id)) {
+      this.deny("This piece is part of the trial.");
+      return;
+    }
     this.snapshot();
     o.dir = (o.dir + 1) % 4;
     audio.play("click", { pitch: 0.8 });
@@ -1193,6 +1357,10 @@ export class Game {
     if (!run || this.selected === null) return;
     const o = run.layout.objects.find((q) => q.id === this.selected);
     if (!o) return;
+    if (run.locked?.includes(o.id)) {
+      this.deny("This piece is part of the trial.");
+      return;
+    }
     this.snapshot();
     const v = sell(run, o.id);
     if (this.kind === "workshop") run.gold = 1e9;
@@ -1225,6 +1393,11 @@ export class Game {
     }
     this.hud.coach(null);
     this.flushSave();
+    if (this.kind === "trial") {
+      this.goldBefore = run.gold;
+      this.beginRaid(trialSetup(this.trial!, run.layout), run.biome);
+      return;
+    }
     if (this.kind === "workshop") {
       this.beginRaid(
         {
@@ -1249,18 +1422,34 @@ export class Game {
     saveProfile(this.profile);
     this.hoardBefore = run.hoard;
     this.goldBefore = run.gold;
-    this.beginRaid(
-      {
-        layout: run.layout,
-        party: this.party,
-        seed: (run.seed ^ Math.imul(run.night, 2654435761)) >>> 0,
-        night: run.night,
-        hoard: run.hoard,
-        hoardMax: run.hoardMax,
-        mods: raidMods(run),
-      },
-      run.biome,
-    );
+    // Leaving mid-raid no longer restarts the night: it resolves on return.
+    run.raiding = run.night;
+    saveRun(run);
+    this.beginRaid(this.raidSetup(run), run.biome);
+  }
+  private raidSetup(run: RunState) {
+    return {
+      layout: run.layout,
+      party: this.party,
+      seed: (run.seed ^ Math.imul(run.night, 2654435761)) >>> 0,
+      night: run.night,
+      hoard: run.hoard,
+      hoardMax: run.hoardMax,
+      mods: raidMods(run),
+    };
+  }
+  /** Settle a night the player walked away from, without powers. */
+  private resolveAbsentRaid() {
+    const run = this.run!;
+    this.party = partyFor(run, run.night);
+    this.hoardBefore = run.hoard;
+    this.goldBefore = run.gold;
+    const raid = simulate(this.raidSetup(run));
+    this.raid = raid;
+    this.phase = "after";
+    this.hud.setMode("after", "run");
+    this.hud.toast("The night went on without you.", "info");
+    this.afterRaid(raid, raid.result());
   }
 
   private beginRaid(
@@ -1283,7 +1472,7 @@ export class Game {
       "raid",
       this.kind === "title"
         ? "run"
-        : (this.kind as "run" | "workshop" | "challenge"),
+        : (this.kind as "run" | "workshop" | "challenge" | "trial"),
     );
     this.hud.setSpeed(SPEEDS[this.speedIdx], false);
     const night = this.kind === "run" ? this.run!.night : 0;
@@ -1330,8 +1519,10 @@ export class Game {
     if (!this.raid || !this.availablePowers().includes(p)) return;
     if (this.power === p) {
       this.power = null;
-    } else if (this.raid.dread < POWERS[p].cost) {
-      this.deny(`Needs ${POWERS[p].cost} dread. Slay heroes to gain more.`);
+    } else if (this.raid.dread < powerCost(p, this.raid.setup.mods.relics)) {
+      this.deny(
+        `Needs ${powerCost(p, this.raid.setup.mods.relics)} dread. Slay heroes to gain more.`,
+      );
       return;
     } else if ((this.powerCd[p] ?? 0) > 0) {
       audio.play("deny");
@@ -1349,18 +1540,25 @@ export class Game {
     if (!raid || !p || raid.finished) return;
     if (!inside(raid.layout, x, y)) return;
     const def = POWERS[p];
-    if (!raid.cast(p, x, y, def.cost)) return;
+    if (!raid.cast(p, x, y, powerCost(p, raid.setup.mods.relics))) return;
     this.powerCd[p] = def.cooldown;
     this.power = null;
     this.updatePowersHud();
     if (p === "shriek") audio.play("shriek");
     if (p === "chill") audio.play("chill");
+    if (p === "sinkhole") audio.play("trapdoor", { pitch: 0.7 });
     this.tutorialStep("cast");
   }
   private updatePowersHud() {
     if (!this.raid) return;
     const powers = this.availablePowers();
-    this.hud.setPowers(powers, this.raid.dread, this.powerCd, this.power);
+    this.hud.setPowers(
+      powers,
+      this.raid.dread,
+      this.powerCd,
+      this.power,
+      this.raid.setup.mods.relics,
+    );
     this.hud.setDread(this.raid.dread, this.raid.dreadMax);
   }
   private cycleSpeed() {
@@ -1387,7 +1585,7 @@ export class Game {
       "after",
       this.kind === "title"
         ? "run"
-        : (this.kind as "run" | "workshop" | "challenge"),
+        : (this.kind as "run" | "workshop" | "challenge" | "trial"),
     );
     this.nightTarget = 0.35;
     audio.intensity = 0;
@@ -1402,6 +1600,10 @@ export class Game {
   }
 
   private afterRaid(raid: Raid, result: ReturnType<Raid["result"]>) {
+    if (this.kind === "trial") {
+      this.afterTrial(raid, result);
+      return;
+    }
     if (this.kind === "challenge") {
       const c = this.challenge!;
       const stolen = raid.hoardMax - raid.hoard;
@@ -1439,6 +1641,7 @@ export class Game {
     const p = this.profile;
     const stolen = Math.max(0, this.hoardBefore - raid.hoard);
     run.hoard = raid.hoard;
+    delete run.raiding;
     const stars = starsFor(result, stolen);
     const income = dawnIncome(run, stars);
     const interest = interestFor(run, this.goldBefore);
@@ -1469,8 +1672,10 @@ export class Game {
     const descentWon = !run.endless && night >= NIGHTS && run.hoard > 0;
     const final = run.hoard <= 0 || descentWon;
     audio.play(stars === 0 ? "defeat" : "dawn");
-    if (run.endless && run.hoard > 0)
+    if (run.endless && run.hoard > 0) {
       p.bestAbyss = Math.max(p.bestAbyss, night);
+      p.stats.abyssNights++;
+    }
     if (run.hoard <= 0) run.victory = false;
     else if (descentWon) run.victory = true;
     else {
@@ -1548,10 +1753,9 @@ export class Game {
     if (stars === 3) this.earn("flawless");
     if (result.bestCombo >= 5) this.earn("combo5");
     if (result.bestCombo >= 8) this.earn("combo8");
+    if (result.bestCombo >= 12) this.earn("combo12");
     for (const c of result.champions)
-      this.earn(
-        c === "paladin" ? "aldric" : c === "archmage" ? "veyla" : "grukk",
-      );
+      if (isChampion(c)) this.earn(CHAMPION_FEAT[c]);
     if (run.gold >= 400) this.earn("hoarder");
     if (
       run.night >= 6 &&
@@ -1567,6 +1771,7 @@ export class Game {
       if (run.night >= 15) this.earn("abyss15");
       if (run.night >= 20) this.earn("abyss20");
       if (run.night >= 30) this.earn("abyss30");
+      if (run.night >= 40) this.earn("abyss40");
     }
   }
 
@@ -1658,18 +1863,27 @@ export class Game {
     const descentWon = run.victory === true && !run.endless;
     if (descentWon) {
       p.wins++;
+      // Daily dungeons don't climb the ladder or credit architects.
       if (!run.daily) {
         p.bestDepth = Math.max(p.bestDepth, run.depth);
         if (run.depth >= p.maxDepth) {
           p.maxDepth = run.depth + 1;
           out.newDepth = p.maxDepth;
         }
+        if (!p.archWins.includes(run.architect)) p.archWins.push(run.architect);
+        if (run.depth >= 3) this.earn("depth3");
+        if (run.depth >= 5) this.earn("depth5");
+        if (run.depth >= 6) this.earn("depth6");
+        if (run.depth >= 10) this.earn("depth10");
+        if (run.depth >= 15) this.earn("depth15");
+        if (run.depth >= 20) this.earn("depth20");
+        if (run.depth >= 30) this.earn("depth30");
+        const heat = runHeat(run);
+        p.bestHeat = Math.max(p.bestHeat, heat);
+        if (heat >= 3) this.earn("heat3");
+        if (heat >= 8) this.earn("heat8");
+        if (heat >= 15) this.earn("heat15");
       }
-      if (!p.archWins.includes(run.architect)) p.archWins.push(run.architect);
-      if (run.depth >= 3) this.earn("depth3");
-      if (run.depth >= 6) this.earn("depth6");
-      if (run.depth >= 10) this.earn("depth10");
-      if (run.depth >= 15) this.earn("depth15");
       if (run.history.every((r) => r.stolen === 0)) this.earn("perfect");
       if (run.history.every((r) => r.stars === 3)) this.earn("allStars");
       if (ARCHITECTS.every((a) => p.archWins.includes(a.id)))
@@ -1871,7 +2085,9 @@ export class Game {
             ? "Workshop"
             : this.kind === "challenge"
               ? "Raid"
-              : `Night ${this.run?.night ?? ""}`,
+              : this.kind === "trial"
+                ? `Trial ${this.trial?.id ?? ""}`
+                : `Night ${this.run?.night ?? ""}`,
         onResume: resume,
         onSettings: () => this.openSettings(),
         onShare:
@@ -1909,7 +2125,7 @@ export class Game {
             : null,
         onMenu: () => {
           if (this.phase === "raid" && this.kind === "run") {
-            // Leaving mid-raid forfeits nothing: the night restarts on return.
+            // The night plays out without the player (see resolveAbsentRaid).
             this.raid = null;
           }
           this.showTitle();
@@ -2197,6 +2413,8 @@ export class Game {
       } else if (k === "f") this.cycleSpeed();
       else if (k === "q") this.selectPower("rockfall");
       else if (k === "w") this.selectPower("shriek");
+      else if (k === "e") this.selectPower("chill");
+      else if (k === "r") this.selectPower("sinkhole");
     }
   }
 
@@ -2897,6 +3115,143 @@ export class Game {
         break;
       case "attack":
         break;
+      case "bomb":
+        audio.play("boulder", { pitch: 1.4 });
+        r.shake(0.3);
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.1,
+          size1: 1.3,
+          max: 0.35,
+          color: "rgba(255,160,80,0.9)",
+        });
+        fx.burst(e.x, e.y - 0.1, 18, {
+          color: "#ffb35a",
+          kind: "spark",
+          size: 0.04,
+          speed: 3.5,
+          up: 2,
+          max: 0.4,
+          add: true,
+        });
+        fx.text(e.x, e.y - 0.4, "Wrecked", "#ff9a6a", 0.9);
+        this.once("bomb", () =>
+          this.hud.toast(
+            "Sappers bomb your best trap in sight. Kill them early.",
+            "bad",
+          ),
+        );
+        break;
+      case "root":
+        audio.play("magic", { pitch: 0.5, volume: 0.7 });
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.2,
+          size1: 2.5,
+          max: 0.5,
+          color: "rgba(140,220,90,0.85)",
+        });
+        this.once("root", () =>
+          this.hud.toast("The druid roots your monsters in place.", "bad"),
+        );
+        break;
+      case "veil":
+        audio.play("blink", { pitch: 0.6 });
+        fx.burst(e.x, e.y - 0.4, 14, {
+          color: "rgba(120,90,200,0.7)",
+          kind: "smoke",
+          size: 0.1,
+          size1: 0.3,
+          speed: 0.8,
+          up: 0.5,
+          max: 0.6,
+        });
+        this.once("veil", () =>
+          this.hud.toast(
+            "Nyx vanishes: monsters lose her, but traps still bite.",
+            "bad",
+          ),
+        );
+        break;
+      case "rise":
+        audio.play("magic", { pitch: 0.45 });
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.1,
+          size1: 1,
+          max: 0.6,
+          color: "rgba(140,255,210,0.9)",
+        });
+        fx.text(e.x, e.y - 0.7, "Risen", "#9fe0c8", 1);
+        this.once("rise", () =>
+          this.hud.toast(
+            "The fallen rise again! Kill the Hollow King or split them up.",
+            "bad",
+          ),
+        );
+        break;
+      case "slam":
+        audio.play("smash");
+        r.shake(0.3);
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.2,
+          size1: 1.6,
+          max: 0.35,
+          color: "rgba(200,200,220,0.9)",
+        });
+        fx.burst(e.x, e.y - 0.2, 12, {
+          color: "#8a8f9c",
+          kind: "shard",
+          size: 0.05,
+          speed: 2.5,
+          up: 2,
+          g: 9,
+          max: 0.5,
+        });
+        break;
+      case "stone":
+        fx.burst(e.x, e.y - 0.3, 8, {
+          color: "rgba(160,160,180,0.6)",
+          kind: "smoke",
+          size: 0.08,
+          size1: 0.2,
+          speed: 0.5,
+          up: 0.4,
+          max: 0.5,
+        });
+        break;
+      case "pit":
+        if (e.open) {
+          r.shake(0.2);
+          fx.burst(e.x + 0.5, e.y + 0.5, 14, {
+            color: "rgba(120,100,80,0.7)",
+            kind: "smoke",
+            size: 0.1,
+            size1: 0.3,
+            speed: 1,
+            up: 0.3,
+            max: 0.6,
+          });
+        }
+        break;
+      case "strike":
+        r.zap([
+          { x: e.fx, y: e.fy },
+          { x: e.x, y: e.y - 0.4 },
+        ]);
+        r.shake(0.2);
+        audio.play("zap");
+        r.flash(e.x, e.y - 0.3, 2, "#cfe4ff", 0.3);
+        break;
     }
   }
 
@@ -2959,6 +3314,19 @@ export class Game {
         break;
       case "pylon":
         audio.play("zap");
+        break;
+      case "crusher":
+        audio.play("smash", { pitch: 1.2 });
+        r.shake(0.15);
+        fx.burst(x + 0.5, y + 0.6, 8, {
+          color: "rgba(180,170,160,0.6)",
+          kind: "smoke",
+          size: 0.08,
+          size1: 0.2,
+          speed: 1.2,
+          up: 0.4,
+          max: 0.4,
+        });
         break;
     }
   }

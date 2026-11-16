@@ -10,6 +10,8 @@ import {
   PIECES,
   POWERS,
   T,
+  powerCost,
+  type OmenId,
   type PieceId,
   type PowerId,
 } from "../src/game/defs";
@@ -61,6 +63,10 @@ export interface BotOpts {
   abyssUntil?: number;
   /** 0..1: how well the bot plays (route shaping, power use). */
   skill?: number;
+  omens?: OmenId[];
+  /** Override the depth twists (diagnostics). */
+  mutators?: RunState["mutators"];
+  boss?: RunState["boss"];
 }
 export interface BotResult {
   won: boolean;
@@ -253,6 +259,10 @@ const VALUE: Partial<Record<PieceId, number>> = {
   ghost: 0.9,
   spider: 1.0,
   golem: 1.2,
+  crusher: 1.1,
+  totem: 0.9,
+  gargoyle: 1.1,
+  wraith: 1.0,
   lure: 0.5,
 };
 
@@ -351,6 +361,10 @@ function pickCard(run: RunState, cards: Card[]): Card | null {
         treasury: 2.3,
         deathKnell: 2.6,
         ironMaiden: 2,
+        phylactery: 2.6,
+        stormcall: 2.5,
+        lastStand: 2,
+        archEye: 1.8,
       };
       return good[c.id] ?? 1.5;
     }
@@ -385,7 +399,8 @@ function castPowers(
       continue;
     }
     const def = POWERS[p];
-    if (raid.dread < def.cost + (p === "rockfall" ? 0 : 2)) continue;
+    const cost = powerCost(p, raid.setup.mods.relics);
+    if (raid.dread < cost + (p === "rockfall" ? 0 : 2)) continue;
     const heroes = raid.heroes.filter((h) => h.alive && h.state !== "falling");
     if (!heroes.length) continue;
     let best: { x: number; y: number; s: number } | null = null;
@@ -402,7 +417,7 @@ function castPowers(
       if (!best || s > best.s) best = { x, y, s };
     }
     if (!best || best.s < 2 - skill) continue;
-    if (raid.cast(p, best.x, best.y, def.cost))
+    if (raid.cast(p, best.x, best.y, cost))
       cds[p] = Math.round(def.cooldown / 0.05);
   }
 }
@@ -416,7 +431,10 @@ export function playRun(o: BotOpts): BotResult {
     architect: o.architect ?? "mason",
     depth: o.depth,
     powers: o.powers ?? ["rockfall", "shriek", "chill"],
+    omens: o.omens,
   });
+  if (o.mutators) run.mutators = o.mutators;
+  if (o.boss) run.boss = o.boss;
   const pool = o.pool ?? ALL_PIECES;
   const res: BotResult = {
     won: false,

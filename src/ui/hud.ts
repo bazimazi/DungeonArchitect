@@ -3,7 +3,11 @@ import {
   HEROES,
   MUTATORS,
   PIECES,
+  OMENS,
   POWERS,
+  heatOf,
+  powerCost,
+  type OmenId,
   isChampion,
   roman,
   type HeroClass,
@@ -289,7 +293,7 @@ export class Hud {
 
   setMode(
     mode: "hidden" | "build" | "raid" | "after",
-    kind: "run" | "workshop" | "challenge" = "run",
+    kind: "run" | "workshop" | "challenge" | "trial" = "run",
   ) {
     this.root.dataset.mode = mode;
     this.root.dataset.kind = kind;
@@ -353,8 +357,26 @@ export class Hud {
     void this.capBox.offsetWidth;
     this.capBox.classList.add("bad");
   }
-  setMutators(ids: MutatorId[]) {
+  setMutators(ids: MutatorId[], omens: OmenId[] = []) {
+    const heat = heatOf(omens);
     this.mutEl.replaceChildren(
+      ...(heat
+        ? [
+            h(
+              "button",
+              {
+                class: "mut heat",
+                title: omens.map((o) => OMENS[o].name).join(", "),
+                onclick: () =>
+                  this.toast(
+                    `Heat ${heat}: ${omens.map((o) => OMENS[o].name).join(", ")}`,
+                    "info",
+                  ),
+              },
+              `Heat ${heat}`,
+            ),
+          ]
+        : []),
       ...ids.map((id) => {
         const m = MUTATORS[id];
         return h(
@@ -406,11 +428,21 @@ export class Hud {
     return this.dreadBox.querySelector(".ic")!.getBoundingClientRect();
   }
 
-  setParty(party: PartyMember[], title: string) {
+  setParty(party: PartyMember[], title: string, fog = false) {
     this.partyTitle.textContent = title;
     this.rosterCells.clear();
     this.partyList.replaceChildren(
       ...party.map((p) => {
+        if (fog)
+          return h(
+            "button",
+            {
+              class: "hero-chip fogged",
+              "data-name": "Unknown hero",
+              "aria-label": "Unknown hero (thick fog)",
+            },
+            "?",
+          );
         const cell = h(
           "button",
           {
@@ -513,6 +545,7 @@ export class Hud {
     dread: number,
     cooldowns: Record<string, number>,
     selected: PowerId | null,
+    relics: readonly string[] = [],
   ) {
     if (this.powersEl.childElementCount !== powers.length) {
       this.powersEl.replaceChildren(
@@ -526,14 +559,20 @@ export class Hud {
               onclick: () => this.hd.power(p),
             },
             icon(
-              p === "rockfall" ? "rock" : p === "chill" ? "chill" : "shriek",
+              p === "rockfall"
+                ? "rock"
+                : p === "chill"
+                  ? "chill"
+                  : p === "sinkhole"
+                    ? "abyss"
+                    : "shriek",
             ),
             h("span", { class: "pname" }, POWERS[p].name),
             h(
               "span",
               { class: "pcost" },
               icon("dread", "ic tiny"),
-              String(POWERS[p].cost),
+              String(powerCost(p, relics)),
             ),
             h("i", { class: "cd" }),
           ),
@@ -544,8 +583,9 @@ export class Hud {
       const p = el.dataset.power as PowerId;
       const cd = cooldowns[p] ?? 0;
       el.classList.toggle("on", selected === p);
-      el.classList.toggle("poor", dread < POWERS[p].cost);
-      el.classList.toggle("ready", dread >= POWERS[p].cost && cd <= 0);
+      const cost = powerCost(p, relics);
+      el.classList.toggle("poor", dread < cost);
+      el.classList.toggle("ready", dread >= cost && cd <= 0);
       (el.querySelector(".cd") as HTMLElement).style.height =
         `${Math.max(0, cd / POWERS[p].cooldown) * 100}%`;
     }

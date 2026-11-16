@@ -2,9 +2,9 @@
  * Game data. All tuning lives here so balance changes never touch systems.
  * Time values are in seconds; distances in tiles.
  */
-export const RULES_VERSION = 2;
+export const RULES_VERSION = 3;
 /** Older link versions that still decode (pieces only ever get appended). */
-export const RULES_COMPAT = [1, 2];
+export const RULES_COMPAT = [1, 2, 3];
 export const TICK = 0.05; // 20 simulation ticks per second
 export const MAP_W = 11;
 export const MAP_H = 15;
@@ -58,7 +58,9 @@ export type TrapId =
   | "gas"
   | "lure"
   | "keg"
-  | "pylon";
+  | "pylon"
+  | "crusher"
+  | "totem";
 export type MonsterId =
   | "skeleton"
   | "archer"
@@ -70,7 +72,9 @@ export type MonsterId =
   | "imp"
   | "ghost"
   | "spider"
-  | "golem";
+  | "golem"
+  | "gargoyle"
+  | "wraith";
 export type PieceId = TrapId | MonsterId;
 export type HeroClass =
   | "knight"
@@ -83,12 +87,32 @@ export type HeroClass =
   | "bard"
   | "windcaller"
   | "inquisitor"
+  | "sapper"
+  | "druid"
   | "paladin"
   | "archmage"
-  | "warlord";
+  | "warlord"
+  | "thane"
+  | "shade"
+  | "revenant";
 
 /** Champions lead the final night of a descent and every fifth abyss night. */
-export const CHAMPIONS = ["paladin", "archmage", "warlord"] as const;
+export const CHAMPIONS = [
+  "paladin",
+  "archmage",
+  "warlord",
+  "thane",
+  "shade",
+  "revenant",
+] as const;
+/** The three original champions, who lead ordinary depths. */
+export const CLASSIC_CHAMPIONS: ChampionId[] = [
+  "paladin",
+  "archmage",
+  "warlord",
+];
+/** Realm lords guard every fifth depth. */
+export const REALM_LORDS: ChampionId[] = ["thane", "shade", "revenant"];
 export type ChampionId = (typeof CHAMPIONS)[number];
 export const isChampion = (c: HeroClass): c is ChampionId =>
   (CHAMPIONS as readonly string[]).includes(c);
@@ -99,9 +123,17 @@ export const FEARLESS: HeroClass[] = [
   "paladin",
   "archmage",
   "warlord",
+  "thane",
+  "shade",
+  "revenant",
 ];
 /** Classes too heavy to fling or knock back. */
-export const UNSHAKABLE: HeroClass[] = ["knight", "paladin", "warlord"];
+export const UNSHAKABLE: HeroClass[] = [
+  "knight",
+  "paladin",
+  "warlord",
+  "thane",
+];
 /** Monsters that inquisitors purge. */
 export const UNDEAD = ["skeleton", "risen", "ghost", "necro"];
 
@@ -340,6 +372,43 @@ export const PIECES: Record<PieceId, PieceDef> = {
     combo: "Park it on a gas vent or saw track and let them stand there.",
     color: "#9a9488",
   },
+  crusher: {
+    id: "crusher",
+    name: "Crusher",
+    kind: "trap",
+    cost: 38,
+    directional: true,
+    rule: "Every 3s, slams the tile ahead. Crushes and stuns.",
+    combo: "Tar and webs hold heroes under the hammer.",
+    color: "#7d8796",
+  },
+  totem: {
+    id: "totem",
+    name: "Hex Totem",
+    kind: "trap",
+    cost: 30,
+    rule: "Heroes within 2 tiles are hexed: they take +20% damage.",
+    combo: "Plant it where your killers overlap.",
+    color: "#c05bd6",
+  },
+  gargoyle: {
+    id: "gargoyle",
+    name: "Gargoyle",
+    kind: "monster",
+    cost: 46,
+    rule: "A statue until heroes come close, then wakes with a stunning slam.",
+    combo: "Turns back to stone and heals when the hall is quiet.",
+    color: "#8a8f9c",
+  },
+  wraith: {
+    id: "wraith",
+    name: "Wraith",
+    kind: "monster",
+    cost: 40,
+    rule: "Drifts through walls and drains life from heroes.",
+    combo: "Hide it in the rock beside a corridor.",
+    color: "#7fd0c0",
+  },
 };
 
 export interface MonsterStats {
@@ -448,6 +517,25 @@ export const MONSTERS: Record<MonsterId, MonsterStats> = {
     range: 1.05,
     aggro: 2.5,
     leash: 2,
+  },
+  gargoyle: {
+    hp: 170,
+    dmg: 15,
+    cd: 1.2,
+    speed: 1.8,
+    range: 1,
+    aggro: 2.8,
+    leash: 3,
+  },
+  wraith: {
+    hp: 62,
+    dmg: 8,
+    cd: 1.1,
+    speed: 2.5,
+    range: 0.95,
+    aggro: 4,
+    leash: 4.5,
+    magic: true,
   },
 };
 export const MINIONS = {
@@ -704,6 +792,88 @@ export const HEROES: Record<HeroClass, HeroStats> = {
     rule: "Champion. Smashes floor traps he crosses. War cries rally his party.",
     color: "#d9763a",
   },
+  sapper: {
+    name: "Sapper",
+    hp: 85,
+    armor: 1,
+    dmg: 9,
+    cd: 1,
+    speed: 2,
+    range: 0.95,
+    engage: 2,
+    bounty: 12,
+    loot: 1,
+    greed: 3,
+    points: 4,
+    rule: "Hurls a bomb at the most dangerous trap in sight, wrecking it.",
+    color: "#c9a25a",
+  },
+  druid: {
+    name: "Druid",
+    hp: 92,
+    armor: 0,
+    dmg: 8,
+    cd: 1.2,
+    speed: 1.9,
+    range: 3,
+    engage: 3,
+    bounty: 12,
+    loot: 1,
+    greed: 2,
+    points: 4,
+    magic: true,
+    rule: "Every 6s, roots monsters nearby so they can't move or fight.",
+    color: "#7fc06a",
+  },
+  thane: {
+    name: "Thane Brannoc",
+    hp: 660,
+    armor: 4,
+    dmg: 24,
+    cd: 1.2,
+    speed: 1.5,
+    range: 1.05,
+    engage: 2.5,
+    bounty: 90,
+    loot: 4,
+    greed: 0,
+    points: 12,
+    rule: "Realm lord. Tunnels straight through rock toward your hoard. Unshakable.",
+    color: "#e0a060",
+  },
+  shade: {
+    name: "Nyx the Shade",
+    hp: 560,
+    armor: 1,
+    dmg: 18,
+    cd: 0.7,
+    speed: 2.3,
+    range: 1,
+    engage: 2,
+    bounty: 90,
+    loot: 6,
+    greed: 0,
+    points: 12,
+    rule: "Realm lord. Vanishes for 3s every 8s: monsters lose her, traps don't.",
+    color: "#8a7ad8",
+  },
+  revenant: {
+    name: "The Hollow King",
+    hp: 780,
+    armor: 2,
+    dmg: 20,
+    cd: 1.3,
+    speed: 1.6,
+    range: 1.05,
+    engage: 3,
+    bounty: 100,
+    loot: 5,
+    greed: 0,
+    points: 12,
+    magic: true,
+    rule: "Realm lord. Heroes who fall near him rise again, three times a night.",
+    color: "#9fe0c8",
+  },
 };
 
 /** One-line counter advice shown with a hero's rule. */
@@ -721,6 +891,11 @@ export const HERO_COUNTER: Record<HeroClass, string> = {
   paladin: "Everything you've got.",
   archmage: "Guards at the hoard; saws and pylons she can't skip.",
   warlord: "Darts, flame, gas and monsters. Floor traps break.",
+  sapper: "Monsters, and cheap traps up front to soak his bombs.",
+  druid: "Traps. Archers and imps out of his reach.",
+  thane: "Traps and guards close to the hoard. Mazes won't stop him.",
+  shade: "Traps along the whole route. Monsters can't see her.",
+  revenant: "Kill him first, or far from his party. Trapdoors split them.",
 };
 
 export type BiomeId = "crypt" | "grotto" | "forge" | "glacier" | "abyss";
@@ -844,7 +1019,17 @@ export type RelicId =
   | "treasury"
   | "thornHides"
   | "deathKnell"
-  | "sprawl";
+  | "sprawl"
+  | "bonfire"
+  | "venom"
+  | "vampiric"
+  | "stoneskin"
+  | "toll"
+  | "lastStand"
+  | "wanted"
+  | "stormcall"
+  | "phylactery"
+  | "archEye";
 export interface RelicDef {
   id: RelicId;
   name: string;
@@ -1028,9 +1213,79 @@ export const RELICS: Record<RelicId, RelicDef> = {
     icon: "skull",
     rarity: "legendary",
   },
+  bonfire: {
+    id: "bonfire",
+    name: "Kindling",
+    text: "Flame jets reach one tile farther.",
+    icon: "flame",
+    rarity: "common",
+  },
+  venom: {
+    id: "venom",
+    name: "Black Venom",
+    text: "Poison deals double damage.",
+    icon: "curse",
+    rarity: "common",
+  },
+  vampiric: {
+    id: "vampiric",
+    name: "Blood Pact",
+    text: "Monsters heal 30% of the damage they deal.",
+    icon: "skull",
+    rarity: "rare",
+  },
+  stoneskin: {
+    id: "stoneskin",
+    name: "Stoneskin",
+    text: "Monsters take 20% less damage.",
+    icon: "banner",
+    rarity: "common",
+  },
+  toll: {
+    id: "toll",
+    name: "Toll of Pain",
+    text: "+5 gold for every hero your traps slay.",
+    icon: "coin",
+    rarity: "common",
+  },
+  lastStand: {
+    id: "lastStand",
+    name: "Last Stand",
+    text: "While your hoard is below half, heroes take +30% damage.",
+    icon: "chest",
+    rarity: "rare",
+  },
+  wanted: {
+    id: "wanted",
+    name: "Wanted Posters",
+    text: "Elites and champions pay triple bounty.",
+    icon: "coin",
+    rarity: "common",
+  },
+  stormcall: {
+    id: "stormcall",
+    name: "Stormcaller",
+    text: "Every 8s, lightning strikes the hero closest to your hoard for 30.",
+    icon: "eye",
+    rarity: "legendary",
+  },
+  phylactery: {
+    id: "phylactery",
+    name: "Phylactery",
+    text: "The first thief to reach the stairs each night drops the loot.",
+    icon: "chest",
+    rarity: "legendary",
+  },
+  archEye: {
+    id: "archEye",
+    name: "Architect's Eye",
+    text: "Powers cost 1 less dread.",
+    icon: "eye",
+    rarity: "rare",
+  },
 };
 
-export type PowerId = "rockfall" | "shriek" | "chill";
+export type PowerId = "rockfall" | "shriek" | "chill" | "sinkhole";
 export interface PowerDef {
   id: PowerId;
   name: string;
@@ -1064,10 +1319,22 @@ export const POWERS: Record<PowerId, PowerDef> = {
     text: "A freezing gust slows heroes nearby for 4s.",
     hint: "Tap to chill the heroes around it",
   },
+  sinkhole: {
+    id: "sinkhole",
+    name: "Sinkhole",
+    cost: 6,
+    cooldown: 10,
+    text: "Opens a pit for 4s. Heroes fall back to the stairs, dropping loot.",
+    hint: "Tap a tile on the heroes' path",
+  },
 };
+/** Dread a power costs, after relics. */
+export function powerCost(id: PowerId, relics: readonly string[]) {
+  return Math.max(1, POWERS[id].cost - (relics.includes("archEye") ? 1 : 0));
+}
 
 export type ArchitectId =
-  "mason" | "trickster" | "lich" | "beastmaster" | "alchemist";
+  "mason" | "trickster" | "lich" | "beastmaster" | "alchemist" | "tinkerer";
 export interface ArchitectDef {
   id: ArchitectId;
   name: string;
@@ -1116,6 +1383,14 @@ export const ARCHITECTS: ArchitectDef[] = [
     text: "Fire and poison deal 30% more. Starts with tar, flame and gas.",
     start: ["tar", "flame", "gas", "lure"],
     unlockRenown: 200,
+  },
+  {
+    id: "tinkerer",
+    name: "Korvin",
+    title: "the Tinkerer",
+    text: "Traps rearm 25% faster. Starts with crushers, darts and springs.",
+    start: ["crusher", "darts", "spring", "lure"],
+    unlockRenown: 350,
   },
 ];
 
@@ -1174,6 +1449,12 @@ export const UNLOCKS: Unlock[] = [
   },
   { at: 220, kind: "piece", id: "necro", label: "Necromancer" },
   { at: 250, kind: "biome", id: "abyss", label: "Abyssal Rift" },
+  { at: 275, kind: "piece", id: "totem", label: "Hex Totem" },
+  { at: 300, kind: "piece", id: "crusher", label: "Crusher" },
+  { at: 325, kind: "power", id: "sinkhole", label: "Sinkhole power" },
+  { at: 350, kind: "architect", id: "tinkerer", label: "Korvin the Tinkerer" },
+  { at: 385, kind: "piece", id: "gargoyle", label: "Gargoyle" },
+  { at: 425, kind: "piece", id: "wraith", label: "Wraith" },
 ];
 
 /** Architect ranks: titles that keep climbing after the unlock track ends. */
@@ -1244,7 +1525,14 @@ export type MutatorId =
   | "blessed"
   | "gilded"
   | "ancient"
-  | "armory";
+  | "armory"
+  | "thieves"
+  | "sappers"
+  | "fireproof"
+  | "fog"
+  | "undying"
+  | "rich"
+  | "fortified";
 export interface MutatorDef {
   id: MutatorId;
   name: string;
@@ -1271,7 +1559,7 @@ export const MUTATORS: Record<MutatorId, MutatorDef> = {
   bloodMoon: {
     id: "bloodMoon",
     name: "Blood Moon",
-    text: "From night 3, every party is led by an elite.",
+    text: "From night 4, every party is led by an elite.",
     good: false,
     from: 4,
   },
@@ -1313,7 +1601,7 @@ export const MUTATORS: Record<MutatorId, MutatorDef> = {
   blessed: {
     id: "blessed",
     name: "Blessed",
-    text: "Heroes heal 50% more and inspiration lasts longer.",
+    text: "Heroes heal 35% more and inspiration lasts longer.",
     good: false,
     from: 4,
   },
@@ -1338,7 +1626,165 @@ export const MUTATORS: Record<MutatorId, MutatorDef> = {
     good: true,
     from: 2,
   },
+  thieves: {
+    id: "thieves",
+    name: "Thieves' Guild",
+    text: "Rogues join every party, and every thief carries one more treasure.",
+    good: false,
+    from: 3,
+  },
+  sappers: {
+    id: "sappers",
+    name: "Sappers",
+    text: "From night 3, every party brings a sapper.",
+    good: false,
+    from: 6,
+  },
+  fireproof: {
+    id: "fireproof",
+    name: "Fireproof",
+    text: "Heroes take half damage from fire.",
+    good: false,
+    from: 4,
+  },
+  fog: {
+    id: "fog",
+    name: "Thick Fog",
+    text: "You can't see who's coming, only how many.",
+    good: false,
+    from: 5,
+  },
+  undying: {
+    id: "undying",
+    name: "Undying",
+    text: "The first hero slain each night rises again at half health.",
+    good: false,
+    from: 6,
+  },
+  rich: {
+    id: "rich",
+    name: "Rich Patrons",
+    text: "Bounties pay 50% more.",
+    good: true,
+    from: 2,
+  },
+  fortified: {
+    id: "fortified",
+    name: "Old Fortifications",
+    text: "Your dungeon holds 3 more pieces.",
+    good: true,
+    from: 3,
+  },
 };
+
+// ---------- Realms: every five depths form a realm with a lord ----------
+const REALM_NAMES = [
+  "The Upper Dark",
+  "The Fungal Reach",
+  "The Ember Deeps",
+  "The Frozen Vaults",
+  "The Abyssal Rift",
+  "The Bone Orchard",
+  "The Drowned Kingdom",
+  "The Starless Sea",
+];
+export const REALM_SIZE = 5;
+export function realmOf(depth: number) {
+  return Math.floor((Math.max(1, depth) - 1) / REALM_SIZE) + 1;
+}
+export function realmName(realm: number) {
+  const base = REALM_NAMES[(realm - 1) % REALM_NAMES.length];
+  const cycle = Math.floor((realm - 1) / REALM_NAMES.length);
+  return cycle > 0 ? `${base} ${roman(cycle + 1)}` : base;
+}
+/** The last depth of every realm is guarded by a realm lord. */
+export const isLordDepth = (depth: number) => depth % REALM_SIZE === 0;
+
+// ---------- Omens: optional curses that raise renown (heat) ----------
+export type OmenId =
+  | "ironWill"
+  | "swift"
+  | "poverty"
+  | "cramped"
+  | "veterans"
+  | "silence"
+  | "brittle"
+  | "meager"
+  | "betrayal"
+  | "wrath";
+export interface OmenDef {
+  id: OmenId;
+  name: string;
+  text: string;
+  heat: number;
+}
+export const OMENS: Record<OmenId, OmenDef> = {
+  ironWill: {
+    id: "ironWill",
+    name: "Iron Will",
+    text: "Heroes have 20% more health.",
+    heat: 2,
+  },
+  swift: {
+    id: "swift",
+    name: "Swift Feet",
+    text: "Heroes move 10% faster.",
+    heat: 2,
+  },
+  poverty: {
+    id: "poverty",
+    name: "Thin Purse",
+    text: "Start with 40 less gold. Dawn tribute is 20% lower.",
+    heat: 2,
+  },
+  cramped: {
+    id: "cramped",
+    name: "Cramped Halls",
+    text: "Your dungeon holds 3 fewer pieces.",
+    heat: 3,
+  },
+  veterans: {
+    id: "veterans",
+    name: "Veterans",
+    text: "From night 3, every party is led by an elite.",
+    heat: 2,
+  },
+  silence: {
+    id: "silence",
+    name: "Silence",
+    text: "No Architect powers.",
+    heat: 2,
+  },
+  brittle: {
+    id: "brittle",
+    name: "Brittle Hoard",
+    text: "Your hoard holds 4 less treasure.",
+    heat: 2,
+  },
+  meager: {
+    id: "meager",
+    name: "Meager Boons",
+    text: "Boon drafts offer two cards instead of three.",
+    heat: 1,
+  },
+  betrayal: {
+    id: "betrayal",
+    name: "Betrayal",
+    text: "Heroes know where every trap is.",
+    heat: 3,
+  },
+  wrath: {
+    id: "wrath",
+    name: "Champion's Wrath",
+    text: "Champions have 40% more health and a larger guard.",
+    heat: 2,
+  },
+};
+export const OMEN_IDS = Object.keys(OMENS) as OmenId[];
+export const heatOf = (omens: readonly OmenId[]) =>
+  omens.reduce((a, o) => a + (OMENS[o]?.heat ?? 0), 0);
+/** Every point of heat adds 10% renown. */
+export const heatRenown = (heat: number) => 1 + heat * 0.1;
 
 /** Fixed difficulty steps for the first depths (each adds to the last). */
 export const DEPTH_HEAT = [
@@ -1357,6 +1803,8 @@ export const HERO_DEPTH: Partial<Record<HeroClass, number>> = {
   bard: 2,
   windcaller: 3,
   inquisitor: 4,
+  sapper: 5,
+  druid: 6,
 };
 
 const DEPTH_NAMES_A = [
@@ -1409,7 +1857,14 @@ export function depthName(depth: number) {
 }
 
 // ---------- Feats: long-term goals that pay renown ----------
-export type StatId = "kills" | "fireKills" | "falls" | "powerKills" | "dailies";
+export type StatId =
+  | "kills"
+  | "fireKills"
+  | "falls"
+  | "powerKills"
+  | "dailies"
+  | "trialStars"
+  | "abyssNights";
 export interface FeatDef {
   id: string;
   name: string;
@@ -1571,7 +2026,7 @@ export const FEATS: FeatDef[] = [
   },
   {
     id: "allArchitects",
-    name: "Guild of Five",
+    name: "Grand Guild",
     text: "Win a descent with every architect.",
     renown: 30,
   },
@@ -1588,5 +2043,119 @@ export const FEATS: FeatDef[] = [
     name: "Squatter",
     text: "Win a descent without digging a single tile.",
     renown: 15,
+  },
+  {
+    id: "thane",
+    name: "Stonebreaker",
+    text: "Defeat Thane Brannoc.",
+    renown: 10,
+  },
+  {
+    id: "shade",
+    name: "Lightbringer",
+    text: "Defeat Nyx the Shade.",
+    renown: 10,
+  },
+  {
+    id: "revenant",
+    name: "Unmaker",
+    text: "Defeat the Hollow King.",
+    renown: 12,
+  },
+  {
+    id: "depth5",
+    name: "Realm Lord",
+    text: "Conquer depth 5 and its realm lord.",
+    renown: 10,
+  },
+  {
+    id: "depth20",
+    name: "Realm Ender",
+    text: "Conquer depth 20.",
+    renown: 60,
+  },
+  {
+    id: "depth30",
+    name: "World's Root",
+    text: "Conquer depth 30.",
+    renown: 100,
+  },
+  {
+    id: "heat3",
+    name: "Ill Omens",
+    text: "Win a descent at heat 3 or more.",
+    renown: 10,
+  },
+  {
+    id: "heat8",
+    name: "Doomsayer",
+    text: "Win a descent at heat 8 or more.",
+    renown: 25,
+  },
+  {
+    id: "heat15",
+    name: "Harbinger",
+    text: "Win a descent at heat 15 or more.",
+    renown: 50,
+  },
+  {
+    id: "combo12",
+    name: "Annihilation",
+    text: "Reach a 12× kill combo.",
+    renown: 20,
+  },
+  {
+    id: "abyss40",
+    name: "Into Oblivion",
+    text: "Survive night 40 in the abyss.",
+    renown: 60,
+  },
+  {
+    id: "abyssNights50",
+    name: "Deep Dweller",
+    text: "Survive 50 abyss nights in total.",
+    renown: 15,
+    stat: "abyssNights",
+    goal: 50,
+  },
+  {
+    id: "kills5000",
+    name: "Unending Dread",
+    text: "Slay 5,000 heroes.",
+    renown: 60,
+    stat: "kills",
+    goal: 5000,
+  },
+  {
+    id: "daily30",
+    name: "Devotee",
+    text: "Finish 30 daily dungeons.",
+    renown: 25,
+    stat: "dailies",
+    goal: 30,
+  },
+  {
+    id: "trials10",
+    name: "Initiate of Trials",
+    text: "Earn 10 trial stars.",
+    renown: 5,
+    stat: "trialStars",
+    goal: 10,
+  },
+  {
+    id: "trials45",
+    name: "Adept of Trials",
+    text: "Earn 45 trial stars.",
+    renown: 15,
+    stat: "trialStars",
+    goal: 45,
+  },
+  {
+    id: "trials90",
+    name: "Grandmaster",
+    text: "Earn every trial star.",
+    renown: 40,
+    stat: "trialStars",
+    goal: 90,
   },
 ];

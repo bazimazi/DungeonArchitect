@@ -216,3 +216,59 @@ test("abandoning from the title and backing out returns to the title", async ({
   await expect(page.getByText("Continue")).toHaveCount(0);
   expect(errors).toEqual([]);
 });
+
+test("a trial can be built, raided and mastered", async ({ page }) => {
+  const errors = await fresh(page);
+  await page.getByText("Trials").click();
+  await page.getByText("Fire and Tar").click();
+  await page.locator(".trial-brief .btn.primary").click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-kind", "trial");
+  // The reference solution: flames at the far ends, one more tar pool.
+  await page.evaluate(() => {
+    const g = (
+      window as unknown as {
+        game: {
+          tool: string | null;
+          tryPlace(x: number, y: number): void;
+          run: { layout: { objects: { x: number; y: number; dir: number }[] } };
+        };
+      }
+    ).game;
+    for (const [id, x, y, dir] of [
+      ["flame", 9, 3, 3],
+      ["flame", 8, 9, 3],
+      ["tar", 6, 9, 2],
+    ] as const) {
+      g.tool = id;
+      g.tryPlace(x, y);
+      const o = g.run.layout.objects.find((q) => q.x === x && q.y === y)!;
+      o.dir = dir;
+    }
+    g.tool = null;
+  });
+  await page.locator(".start-btn").click();
+  await finishRaid(page);
+  await expect(page.locator(".trial-result")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".trial-result h2")).toHaveText("Mastered");
+  const stars = await page.evaluate(
+    () =>
+      JSON.parse(localStorage.getItem("da.profile.v1") ?? "{}").trials?.["1-2"],
+  );
+  expect(stars).toBe(3);
+  await page.getByRole("button", { name: "Rebuild" }).click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  expect(errors).toEqual([]);
+});
+
+test("leaving mid-raid settles the night on return", async ({ page }) => {
+  await fresh(page);
+  await page.getByText("New Descent").click();
+  await page.locator(".start-btn").click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "raid");
+  await page.reload();
+  await page.getByText("Continue").click();
+  await expect(page.locator(".results")).toBeVisible({ timeout: 10_000 });
+  await page.locator(".results .btn.primary").click();
+  await page.locator(".card-btn").first().click();
+  await expect(page.locator(".night-num")).toHaveText("2");
+});

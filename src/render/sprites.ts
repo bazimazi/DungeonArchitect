@@ -136,7 +136,13 @@ export function drawHero(
           ? 1.42
           : cls === "dwarf"
             ? 0.92
-            : 1;
+            : cls === "thane"
+              ? 1.32
+              : cls === "revenant"
+                ? 1.3
+                : cls === "shade"
+                  ? 1.16
+                  : 1;
   ctx.scale(big * look.face, big);
   // Windcallers float on a little whirlwind.
   if (cls === "windcaller") {
@@ -171,7 +177,7 @@ export function drawHero(
   rrect(ctx, -0.12 + leg, -0.2, 0.09, 0.2, 0.03, "#3b3140");
   rrect(ctx, 0.03 - leg, -0.2, 0.09, 0.2, 0.03, "#3b3140");
   ctx.translate(lean, -bob);
-  const short = cls === "dwarf" ? 0.08 : 0;
+  const short = cls === "dwarf" || cls === "thane" ? 0.08 : 0;
   // Cape / back items.
   if (cls === "paladin")
     poly(ctx, [-0.18, -0.55, 0.12, -0.55, 0.05, -0.12, -0.28, -0.1], "#b02a3a");
@@ -185,6 +191,23 @@ export function drawHero(
     poly(ctx, [-0.2, -0.58, 0.14, -0.58, 0.08, -0.1, -0.3, -0.12], "#5a3a22");
   if (cls === "bard")
     poly(ctx, [-0.16, -0.54, 0.08, -0.54, 0.0, -0.2, -0.22, -0.18], "#7a2a5a");
+  if (cls === "thane")
+    poly(ctx, [-0.2, -0.5, 0.14, -0.5, 0.06, -0.1, -0.3, -0.08], "#9a2a2a");
+  if (cls === "shade")
+    poly(
+      ctx,
+      [-0.18, -0.6, 0.12, -0.6, 0.1, -0.02, -0.36, 0.02, -0.26, -0.2],
+      "#231a3a",
+    );
+  if (cls === "revenant")
+    poly(
+      ctx,
+      [
+        -0.2, -0.58, 0.14, -0.58, 0.06, -0.04, -0.12, -0.1, -0.22, 0, -0.34,
+        -0.06,
+      ],
+      "#1f3a36",
+    );
   if (cls === "ranger" || cls === "rogue")
     poly(
       ctx,
@@ -210,12 +233,20 @@ export function drawHero(
     inquisitor: "#3a3440",
     archmage: "#5a3aa0",
     warlord: "#8a5a3a",
+    sapper: "#7a5a36",
+    druid: "#4f7a3a",
+    thane: "#c8a040",
+    shade: "#3a2c5a",
+    revenant: "#2f5a52",
   };
   if (
     cls === "mage" ||
     cls === "cleric" ||
     cls === "archmage" ||
-    cls === "windcaller"
+    cls === "windcaller" ||
+    cls === "druid" ||
+    cls === "shade" ||
+    cls === "revenant"
   ) {
     poly(
       ctx,
@@ -230,6 +261,15 @@ export function drawHero(
       circle(ctx, 0, -0.42, 0.05, "#ffd166", false);
     } else if (cls === "windcaller") {
       line(ctx, -0.18, -0.24, 0.18, -0.3, "#c8fff6", 0.03);
+    } else if (cls === "druid") {
+      line(ctx, -0.18, -0.22, 0.18, -0.22, "#b8e070", 0.03);
+      circle(ctx, 0.0, -0.4, 0.035, "#e8d070", false);
+    } else if (cls === "shade") {
+      line(ctx, -0.12, -0.48, 0.1, -0.16, "#6a5aa0", 0.025);
+    } else if (cls === "revenant") {
+      line(ctx, -0.2, -0.2, 0.2, -0.2, "#9fe0c8", 0.03);
+      for (const y of [-0.44, -0.38, -0.32])
+        line(ctx, -0.07, y, 0.07, y, "#d8d0bc", 0.018);
     } else {
       line(ctx, -0.18, -0.2, 0.18, -0.2, "#c7a2ff", 0.03);
     }
@@ -271,6 +311,16 @@ export function drawHero(
     if (cls === "bard") {
       line(ctx, -0.14, -0.48, 0.14, -0.26, "#ffd166", 0.025);
     }
+    if (cls === "sapper") {
+      rrect(ctx, -0.12, -0.42, 0.24, 0.24, 0.04, "#a8865a");
+      line(ctx, -0.17, -0.48, 0.17, -0.48, "#4a3220", 0.035);
+      for (const x of [-0.1, 0, 0.1]) circle(ctx, x, -0.48, 0.03, "#3a3a44");
+    }
+    if (cls === "thane") {
+      ellipse(ctx, 0, -0.42, 0.14, 0.08, "#e8c860");
+      line(ctx, -0.2, -0.28, 0.2, -0.28, "#5a3a1a", 0.05);
+      circle(ctx, 0, -0.28, 0.045, "#ff6a5a");
+    }
   }
   // Off-hand: shield for knights/paladins.
   if (cls === "knight" || cls === "paladin") {
@@ -291,7 +341,19 @@ export function drawHero(
   }
   // Head.
   const hy = -0.66 + short;
-  circle(ctx, 0, hy, 0.15, cls === "warlord" ? "#8fb06a" : SKIN);
+  circle(
+    ctx,
+    0,
+    hy,
+    0.15,
+    cls === "warlord"
+      ? "#8fb06a"
+      : cls === "revenant"
+        ? "#e8e0cc"
+        : cls === "shade"
+          ? "#b8a8d8"
+          : SKIN,
+  );
   // Headgear.
   switch (cls) {
     case "knight":
@@ -466,6 +528,122 @@ export function drawHero(
         "#eeeaf5",
       );
       break;
+    case "sapper":
+      ctx.beginPath();
+      ctx.arc(0, hy - 0.02, 0.16, Math.PI, 0);
+      ctx.closePath();
+      shape(ctx, "#6a4a2a");
+      line(ctx, -0.15, hy - 0.04, 0.16, hy - 0.04, "#3a2a1a", 0.04);
+      circle(ctx, 0.08, hy - 0.04, 0.05, "#9fd8ff");
+      break;
+    case "druid":
+      poly(
+        ctx,
+        [
+          -0.16,
+          hy + 0.04,
+          -0.12,
+          hy - 0.14,
+          0,
+          hy - 0.18,
+          0.12,
+          hy - 0.14,
+          0.16,
+          hy + 0.04,
+          0.08,
+          hy - 0.06,
+          -0.08,
+          hy - 0.06,
+        ],
+        "#4f7a3a",
+      );
+      line(ctx, -0.06, hy - 0.16, -0.2, hy - 0.36, "#c8a070", 0.03);
+      line(ctx, -0.14, hy - 0.26, -0.26, hy - 0.28, "#c8a070", 0.025);
+      line(ctx, 0.06, hy - 0.16, 0.2, hy - 0.36, "#c8a070", 0.03);
+      line(ctx, 0.14, hy - 0.26, 0.26, hy - 0.28, "#c8a070", 0.025);
+      break;
+    case "thane":
+      ctx.beginPath();
+      ctx.arc(0, hy - 0.02, 0.16, Math.PI, 0);
+      ctx.closePath();
+      shape(ctx, "#c8a040");
+      poly(
+        ctx,
+        [
+          -0.14,
+          hy - 0.12,
+          -0.14,
+          hy - 0.28,
+          -0.07,
+          hy - 0.2,
+          0,
+          hy - 0.32,
+          0.07,
+          hy - 0.2,
+          0.14,
+          hy - 0.28,
+          0.14,
+          hy - 0.12,
+        ],
+        "#ffd166",
+      );
+      poly(
+        ctx,
+        [
+          -0.13,
+          hy + 0.02,
+          0.15,
+          hy + 0.02,
+          0.12,
+          hy + 0.3,
+          0.0,
+          hy + 0.38,
+          -0.1,
+          hy + 0.28,
+        ],
+        "#d8d0c0",
+      );
+      break;
+    case "shade":
+      ctx.beginPath();
+      ctx.arc(0, hy, 0.18, Math.PI * 0.85, Math.PI * 2.15);
+      ctx.lineTo(0.14, hy + 0.12);
+      ctx.lineTo(-0.18, hy + 0.14);
+      ctx.closePath();
+      shape(ctx, "#231a3a");
+      if (!FLASH) {
+        circle(ctx, 0.02, hy + 0.0, 0.025, "#c8b0ff", false);
+        circle(ctx, 0.1, hy + 0.0, 0.025, "#c8b0ff", false);
+      }
+      break;
+    case "revenant":
+      circle(ctx, 0.0, hy + 0.0, 0.04, "#1a2a28", false);
+      circle(ctx, 0.09, hy + 0.0, 0.04, "#1a2a28", false);
+      if (!FLASH) {
+        circle(ctx, 0.0, hy + 0.0, 0.018, "#7affd8", false);
+        circle(ctx, 0.09, hy + 0.0, 0.018, "#7affd8", false);
+      }
+      poly(
+        ctx,
+        [
+          -0.15,
+          hy - 0.1,
+          -0.16,
+          hy - 0.3,
+          -0.08,
+          hy - 0.2,
+          0,
+          hy - 0.34,
+          0.08,
+          hy - 0.2,
+          0.16,
+          hy - 0.3,
+          0.15,
+          hy - 0.1,
+        ],
+        "#9a8a5a",
+      );
+      break;
     case "warlord":
       ctx.beginPath();
       ctx.arc(0, hy - 0.01, 0.17, Math.PI, 0);
@@ -494,7 +672,10 @@ export function drawHero(
     cls !== "knight" &&
     cls !== "paladin" &&
     cls !== "rogue" &&
-    cls !== "windcaller"
+    cls !== "windcaller" &&
+    cls !== "shade" &&
+    cls !== "revenant" &&
+    cls !== "sapper"
   )
     circle(ctx, 0.07, hy - 0.01, 0.022, "#1c1c24", false);
   // Weapon arm.
@@ -558,6 +739,31 @@ export function drawHero(
     case "archmage":
       line(ctx, 0, 0.18, 0.14, -0.42, "#4a3020", 0.05);
       circle(ctx, 0.15, -0.47, 0.08, FLASH ? "#fff" : "#c38cff");
+      break;
+    case "sapper":
+      circle(ctx, 0.14, -0.1, 0.09, "#2a2a32");
+      if (!FLASH) {
+        line(ctx, 0.16, -0.19, 0.2, -0.27, "#c8a070", 0.02);
+        circle(ctx, 0.21, -0.29, 0.025, "#ffb347", false);
+      }
+      break;
+    case "druid":
+      line(ctx, 0, 0.14, 0.1, -0.38, "#6b4a2a", 0.045);
+      ellipse(ctx, 0.14, -0.42, 0.07, 0.04, "#8fd060", true, -0.6);
+      ellipse(ctx, 0.06, -0.44, 0.06, 0.035, "#6fb04a", true, 0.6);
+      break;
+    case "thane":
+      line(ctx, 0, 0.02, 0.3, -0.2, "#5a3a1a", 0.06);
+      rrect(ctx, 0.2, -0.36, 0.22, 0.16, 0.03, "#a7adb8");
+      line(ctx, 0.31, -0.36, 0.31, -0.2, "#ffd166", 0.025);
+      break;
+    case "shade":
+      line(ctx, 0.02, 0, 0.26, -0.12, "#c8b0ff", 0.04);
+      line(ctx, -0.28, 0.04, -0.06, -0.06, "#c8b0ff", 0.035);
+      break;
+    case "revenant":
+      line(ctx, 0, 0.02, 0.36, -0.26, "#9fe0c8", 0.05);
+      line(ctx, 0.04, 0.06, 0.12, -0.08, "#5a4632", 0.05);
       break;
     case "warlord":
       line(ctx, 0, 0.04, 0.34, -0.24, "#4a3020", 0.06);
@@ -888,6 +1094,71 @@ export function drawMonster(
       ctx.restore();
       break;
     }
+    case "gargoyle": {
+      const stone = hidden;
+      ctx.scale(1.15, 1.15);
+      if (stone) rrect(ctx, -0.26, -0.12, 0.52, 0.14, 0.03, "#5a5866");
+      const body = stone ? "#7a7e88" : "#8a8f9c";
+      const lift = stone ? 0 : 0.04 + Math.sin(t * 5) * 0.02;
+      ctx.translate(0, -lift - bob * 0.4);
+      // Wings.
+      const flap = stone ? 0 : Math.sin(t * 9) * 0.12;
+      poly(
+        ctx,
+        [-0.12, -0.42, -0.42, -0.62 - flap, -0.36, -0.34, -0.2, -0.26],
+        stone ? "#6a6e78" : "#6a6f7c",
+      );
+      poly(
+        ctx,
+        [0.12, -0.42, 0.42, -0.62 - flap, 0.36, -0.34, 0.2, -0.26],
+        stone ? "#6a6e78" : "#6a6f7c",
+      );
+      ellipse(ctx, 0, -0.26, 0.2, 0.18, body);
+      circle(ctx, 0.04, -0.5, 0.14, body);
+      poly(ctx, [-0.06, -0.6, -0.12, -0.76, 0.0, -0.62], body);
+      poly(ctx, [0.1, -0.6, 0.16, -0.76, 0.04, -0.62], body);
+      if (!FLASH) {
+        const eye = stone ? "#3a3c44" : "#ff7a4a";
+        circle(ctx, 0.0, -0.5, 0.025, eye, false);
+        circle(ctx, 0.1, -0.5, 0.025, eye, false);
+        if (stone) {
+          line(ctx, -0.08, -0.32, 0.02, -0.18, "#5a5e68", 0.015);
+          line(ctx, 0.1, -0.56, 0.14, -0.46, "#5a5e68", 0.015);
+        }
+      }
+      ctx.save();
+      ctx.translate(0.16, -0.3);
+      ctx.rotate(sw * 0.7);
+      poly(ctx, [0, 0, 0.16, 0.02, 0.18, 0.1, 0.02, 0.08], body);
+      ctx.restore();
+      break;
+    }
+    case "wraith": {
+      ctx.globalAlpha *= FLASH ? 1 : 0.72;
+      ctx.translate(0, -0.26 + Math.sin(t * 3) * 0.05);
+      ctx.beginPath();
+      ctx.moveTo(-0.2, -0.36);
+      ctx.quadraticCurveTo(-0.22, -0.72, 0.02, -0.72);
+      ctx.quadraticCurveTo(0.24, -0.72, 0.2, -0.36);
+      ctx.quadraticCurveTo(0.24, -0.1, 0.06 + Math.sin(t * 5) * 0.05, 0.12);
+      ctx.quadraticCurveTo(-0.02, -0.1, -0.12 + Math.sin(t * 4) * 0.05, 0.06);
+      ctx.quadraticCurveTo(-0.24, -0.14, -0.2, -0.36);
+      ctx.closePath();
+      shape(ctx, "#2a4a48");
+      ellipse(ctx, 0.04, -0.52, 0.12, 0.12, "#122624", false);
+      if (!FLASH) {
+        circle(ctx, 0.0, -0.53, 0.025, "#9fffe8", false);
+        circle(ctx, 0.09, -0.53, 0.025, "#9fffe8", false);
+      }
+      ctx.save();
+      ctx.translate(0.14, -0.4);
+      ctx.rotate(sw * 0.8);
+      line(ctx, 0, 0, 0.18, 0.06, "#7fd0c0", 0.035);
+      line(ctx, 0.16, 0.04, 0.24, -0.02, "#7fd0c0", 0.02);
+      line(ctx, 0.16, 0.06, 0.24, 0.1, "#7fd0c0", 0.02);
+      ctx.restore();
+      break;
+    }
     case "ghost": {
       ctx.globalAlpha *= FLASH ? 1 : 0.8;
       ctx.translate(0, -0.2 + Math.sin(t * 2.5) * 0.06);
@@ -1124,6 +1395,55 @@ export function drawTrap(ctx: C, kind: TrapId, look: TrapLook) {
             false,
           );
         }
+      }
+      break;
+    }
+    case "crusher": {
+      center();
+      ctx.rotate(dirRot);
+      rrect(ctx, -0.32, -0.08, 0.64, 0.38, 0.08, "#4a4652");
+      rrect(ctx, -0.12, -0.02, 0.24, 0.2, 0.04, "#2a2630", false);
+      // The hammer: raised while winding up, slammed forward when active.
+      const k = look.active ? 1 : look.warn ? -0.25 : 0;
+      ctx.save();
+      ctx.translate(0, -0.02);
+      const reach = 0.12 + k * 0.42;
+      line(ctx, 0, 0, 0, -reach, "#8a8f9c", 0.08);
+      rrect(
+        ctx,
+        -0.22,
+        -reach - 0.16,
+        0.44,
+        0.16,
+        0.04,
+        look.warn ? "#c8a050" : "#7d8796",
+      );
+      if (!look.disabled)
+        circle(ctx, 0, 0.14, 0.04, look.warn ? "#ffcc55" : "#3a3440", false);
+      ctx.restore();
+      break;
+    }
+    case "totem": {
+      center();
+      ellipse(ctx, 0, 0.28, 0.24, 0.08, "#2a2030");
+      rrect(ctx, -0.13, -0.38, 0.26, 0.66, 0.06, "#6a3a5a");
+      rrect(ctx, -0.17, -0.4, 0.34, 0.14, 0.04, "#8a4a7a");
+      const glow = look.active && !look.disabled;
+      const eye = glow
+        ? `hsl(${290 + Math.sin(look.t * 5) * 20},90%,70%)`
+        : "#3a2440";
+      circle(ctx, -0.05, -0.18, 0.035, eye, false);
+      circle(ctx, 0.05, -0.18, 0.035, eye, false);
+      line(ctx, -0.07, -0.04, 0.07, -0.04, "#2a1a24", 0.025);
+      for (const y of [0.08, 0.18])
+        line(ctx, -0.11, y, 0.11, y, "#4a2840", 0.02);
+      if (glow) {
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.42 + Math.sin(look.t * 4) * 0.03, 0, Math.PI * 2);
+        ctx.strokeStyle = "rgba(220,120,255,0.35)";
+        ctx.lineWidth = 0.025;
+        ctx.stroke();
+        ctx.lineWidth = 0.04;
       }
       break;
     }

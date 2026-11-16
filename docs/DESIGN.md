@@ -34,8 +34,13 @@ A descent is 10 nights (about 20–30 minutes). Nights 4 and 7 bring an elite he
 
 - **Depths (infinite).** Every descent is played at a depth. Depth 1 is _The Old Cellars_; winning at your deepest depth opens the next one. Each depth has a fixed identity derived from its number: a name (_The Burning Catacombs_), a night-10 champion (Sir Aldric, Archmage Veyla and Warlord Grukk rotate), and 0–4 **twists** (mutators such as Ironclad, The Horde, Blood Moon, Zealots, Cartographers, Lean Times, Hard Rock, plus rarer blessings such as Gilded Veins or Ancient Hoard). Depths 2–8 also stack fixed heat steps: more hero health, larger parties, less starting gold, more elites, a lighter hoard, faster heroes, and an honour guard for the champion. Past depth 8, heroes gain 7% health and 4% damage per depth and parties keep growing, without limit. Bards, windcallers and inquisitors join parties from depths 2, 3 and 4.
 - **The Abyss (endless).** After winning night 10 the victory is banked (renown, records, next depth) and the player may delve into the abyss: the same dungeon continues with no end. Abyss parties are all led by elites, hero health and damage compound each night (×1.09 and ×1.04), and every fifth night (15, 20, 25…) brings the next champion with a growing guard. Each abyss night pays 2 renown plus its stars. The run ends when the hoard is empty, and the best abyss night is recorded.
-- **Feats.** Thirty long-term goals (Kingslayer, Constellation, Abyss Walker, Pyromaniac, Guild of Five…) pay renown once. Counter feats show progress bars.
-- **Ranks.** Ten architect titles from Apprentice to Eternal Architect, then numbered ranks every 120 renown, so renown keeps meaning something after the unlock track ends at 250.
+- **Realms (every five depths).** Depths group into named realms (_The Upper Dark_, _The Fungal Reach_, _The Ember Deeps_…; names cycle with numerals after eight realms). The fifth depth of each realm is guarded by a **realm lord** on night 10: Thane Brannoc (tunnels straight for the hoard), Nyx the Shade (vanishes from monsters every 8 s) and the Hollow King (raises fallen heroes three times a night). Lord depths pay +10 renown and get a lighter twist budget, so the lord is the peak. From depth 10, ordinary depths rotate all six champions.
+- **Twist budget.** Each twist has a severity (Ironclad, Horde, Blood Moon and Cartographers 3; most others 2; Zealots, Hard Rock and Thick Fog 1; blessings −1 to −2). Depths draw twists up to a budget (2 at depths 2–4, 4 at 5–8, 5 at 9–15, 7 at 16–30, 9 beyond), so neighbouring depths feel alike.
+- **Deep heat ramps over the nights.** Past depth 8, the extra hero health and party size build from about 40% on night 1 to full strength by night 7, and the player starts with 5 extra gold per depth (up to 80). Deep runs end in a climax instead of on night three.
+- **Omens (heat).** After the first victory, the setup screen offers ten omens, each worth 1–3 heat: Iron Will, Swift Feet, Thin Purse, Cramped Halls, Veterans, Silence, Brittle Hoard, Meager Boons, Betrayal and Champion's Wrath. Every point of heat multiplies the run's renown by +10%. The best heat conquered is a record, and feats reward heat 3, 8 and 15. Depth × heat makes the challenge two-dimensional and practically endless.
+- **Trials.** Twenty-five handcrafted puzzle dungeons in six chapters (_First Lessons_, _Light Fingers_, _Iron and Faith_, _Arcane Arts_, _Siege Breakers_, _Lords of the Deep_). Each fixes the map, party, blueprints and gold, and there are no powers, so a trial is solved by design alone. Stars: defend, leave no survivors, and do both under par. Chapters open with stars, each new star pays 1 renown, and three feats track trial stars. Every trial's par comes from a search-based solver (`.cache/probe/solve.probe.ts`), and `tests/trials.test.ts` replays a verified three-star solution for every trial and checks that building nothing earns no stars.
+- **Feats.** Forty-seven long-term goals (Kingslayer, Constellation, Abyss Walker, Realm Ender, Harbinger, Grandmaster…) pay renown once. Counter feats show progress bars.
+- **Ranks.** Ten architect titles from Apprentice to Eternal Architect, then numbered ranks every 120 renown, so renown keeps meaning something after the unlock track ends at 425 (Hex Totem, Crusher, Sinkhole, Korvin the Tinkerer, Gargoyle and Wraith extend it past 250).
 - **Daily.** One seeded dungeon per UTC day at depth 2–4, with every piece in the draft pool so everyone sees the same offers.
 
 ### Economy
@@ -43,40 +48,48 @@ A descent is 10 nights (about 20–30 minutes). Nights 4 and 7 bring an elite he
 - Start: 100 gold (Grimwald gets +30; depth 4+ takes 30). Digging costs 2 gold per tile. Gold veins pay 14 gold when dug.
 - Bounties: 10–15 gold per hero, scaling with the night (+50% for elites). Combos add 3 gold per chained kill.
 - Dawn tribute: 30 + 4×night + 6 per star.
-- **Capacity.** The dungeon holds 5 + 2×night pieces (7 on night 1, 25 on night 10, +1 per abyss night). Space, not gold, is the late-game limit, so every slot is a decision.
+- **Capacity.** The dungeon holds 5 + 2×night pieces (7 on night 1, 25 on night 10, +1 per abyss night up to +10). Space, not gold, is the late-game limit, so every slot is a decision.
 - **Reinforcing.** Spare gold raises a blueprint's tier for every copy: cost = piece cost × 4 × current tier, up to tier V. Drafts upgrade to tier III for free. Undo reverts reinforcing within a build phase.
 - **Rerolls.** A draft can be rerolled for 10 gold, then 20, 30…
 - Selling refunds 100% of a piece's cost on the night it was placed and 75% afterwards.
 
 ### Heroes
 
-| Class      | Rule                                                 | Counter                                                 |
-| ---------- | ---------------------------------------------------- | ------------------------------------------------------- |
-| Knight     | Armored; can't be flung; monsters focus him          | Fire, poison and magic ignore armor; trapdoors          |
-| Rogue      | Fast; disarms the first trap ahead; steals double    | Monsters, cheap decoy traps, bait into a kill box       |
-| Cleric     | Heals the most wounded ally and cleanses burns       | Burst damage; bats and archers that reach the back line |
-| Mage       | Fireballs hit groups of monsters and ignite your tar | Spread monsters out; keep tar away from the front       |
-| Ranger     | Long range; spots traps so the party avoids them     | Loops, so the avoided route is just as deadly           |
-| Dwarf      | Tunnels through rock when your maze is long          | Traps near the hoard; masonry (bedrock) walls           |
-| Berserker  | Fearless; hits harder when wounded                   | Burst damage and crowd control                          |
-| Bard       | Inspires allies: faster, stronger and fearless       | Bats and archers that reach the back line               |
-| Windcaller | Floats over floor plates; darts and arrows hurt +50% | Darts, archers, flame, gas and storm pylons             |
-| Inquisitor | Fearless; smites undead so they never rise again     | Living monsters and traps                               |
-| Sir Aldric | Champion: aura heals allies; fearless; unshakable    | Everything you've got                                   |
-| Veyla      | Champion: blinks 4 tiles ahead every 7 s             | Guards at the hoard; saws and pylons she can't skip     |
-| Grukk      | Champion: smashes floor plates; war cries rally      | Darts, flame, gas and monsters                          |
+| Class       | Rule                                                  | Counter                                                 |
+| ----------- | ----------------------------------------------------- | ------------------------------------------------------- |
+| Knight      | Armored; can't be flung; monsters focus him           | Fire, poison and magic ignore armor; trapdoors          |
+| Rogue       | Fast; disarms the first trap ahead; steals double     | Monsters, cheap decoy traps, bait into a kill box       |
+| Cleric      | Heals the most wounded ally and cleanses burns        | Burst damage; bats and archers that reach the back line |
+| Mage        | Fireballs hit groups of monsters and ignite your tar  | Spread monsters out; keep tar away from the front       |
+| Ranger      | Long range; spots traps so the party avoids them      | Loops, so the avoided route is just as deadly           |
+| Dwarf       | Tunnels through rock when your maze is long           | Traps near the hoard; masonry (bedrock) walls           |
+| Berserker   | Fearless; hits harder when wounded                    | Burst damage and crowd control                          |
+| Bard        | Inspires allies: faster, stronger and fearless        | Bats and archers that reach the back line               |
+| Windcaller  | Floats over floor plates; darts and arrows hurt +50%  | Darts, archers, flame, gas and storm pylons             |
+| Inquisitor  | Fearless; smites undead so they never rise again      | Living monsters and traps                               |
+| Sapper      | Bombs the most dangerous trap in sight (from depth 5) | Monsters; cheap traps in front; corners                 |
+| Druid       | Roots nearby monsters for 2 s every 6 s (depth 6)     | Traps; ranged monsters out of reach                     |
+| Sir Aldric  | Champion: aura heals allies; fearless; unshakable     | Everything you've got                                   |
+| Veyla       | Champion: blinks 4 tiles ahead every 7 s              | Guards at the hoard; saws and pylons she can't skip     |
+| Grukk       | Champion: smashes floor plates; war cries rally       | Darts, flame, gas and monsters                          |
+| Thane       | Realm lord: tunnels through rock toward the hoard     | Guards and traps at the hoard                           |
+| Nyx         | Realm lord: vanishes from monsters 3 s of every 8 s   | Traps along the whole route                             |
+| Hollow King | Realm lord: raises heroes who fall near him (×3)      | Kill him first; split the party                         |
 
 ### Pieces
 
-Thirteen traps and eleven monsters. Each piece has one rule and one combo hint (see `src/game/defs.ts`). Each tier above I adds 40% power. New in the expansion: the **Storm Pylon** (chain lightning through up to 3 heroes, ignores armor), the **Cave Spider** (webs slow heroes) and the **Stone Golem** (heroes nearby must fight it).
+Fifteen traps and thirteen monsters. Each piece has one rule and one combo hint (see `src/game/defs.ts`). Each tier above I adds 40% power. New in the expansion: the **Storm Pylon** (chain lightning through up to 3 heroes, ignores armor), the **Cave Spider** (webs slow heroes) and the **Stone Golem** (heroes nearby must fight it). Rules v3 adds the **Crusher** (slams the tile ahead every 3 s: crush damage and a stun), the **Hex Totem** (heroes within 2 tiles take +20% damage), the **Gargoyle** (an immune statue that wakes with a stunning slam and turns back to stone to heal) and the **Wraith** (drifts through rock and drains life).
 
-Relics come in three rarities (common, rare, legendary), weighted 4:2:1 in drafts. Five architects change the economy or starting kit: Grimwald, Vex, Morwen, Brakka the Beastmaster (cheaper, harder-hitting monsters) and Seraphine the Alchemist (fire and poison +30%).
+Relics come in three rarities (common, rare, legendary), weighted 4:2:1 in drafts. Ten new relics (Kindling, Black Venom, Blood Pact, Stoneskin, Toll of Pain, Last Stand, Wanted Posters, Stormcaller, Phylactery, Architect's Eye) bring the total to thirty-five. Six architects change the economy or starting kit: Grimwald, Vex, Morwen, Brakka the Beastmaster (cheaper, harder-hitting monsters) and Seraphine the Alchemist (fire and poison +30%), and Korvin the Tinkerer (traps rearm 25% faster).
 
 ### Powers
 
 - **Rockfall** (5 dread): after 0.6 s, a 3×3 area takes 40 crush damage and is stunned.
 - **Dread Shriek** (7 dread, unlocked at 12 renown): heroes nearby flee back toward the stairs, across your traps.
 - **Grave Chill** (4 dread, unlocked at 98 renown): heroes nearby take 8 magic damage and move at half speed for 4 s.
+- **Sinkhole** (6 dread, unlocked at 325 renown): a pit opens on a tile for 4 s; heroes who step in fall back to the stairs and drop their loot.
+
+Powers use Q, W, E and R. Leaving mid-raid no longer restarts the night: on return the night resolves without powers, so quitting can't be used to rehearse a raid.
 
 Dread builds by +1 every 2 s and +2 per kill, up to 15 (20 with Soul Siphon).
 
@@ -126,5 +139,6 @@ All economy and scaling knobs live in `TUNE` in `src/game/defs.ts`.
 What the bot found, and what changed:
 
 - Before the expansion, the map saturated. By night 7 a competent player had about 50 pieces and over 1,000 unspendable gold, and won every night (100% wins up to depth 8). Raids lasted 10–30 s. No amount of hero health fixed this, so the capacity limit and reinforcing were added.
-- Current curve (bot with every unlock, 16 seeds): depth 1 ≈ 88% wins, depths 2–3 ≈ 70%, depth 5 ≈ 45%, depth 8 ≈ 15%. Raids last 30–45 s, and night 10 runs 55–85 s. The first descent with the starter kit wins ≈ 85%. Abyss runs end between nights 11 and 21, which spreads out the night-15/20/30 feats.
+- Rules v3 curve (bot with every unlock, 24 seeds): depth 1 ≈ 88%, depth 3 ≈ 80%, depth 5 (first lord) ≈ 50%, depth 8 ≈ 75%, depth 9 ≈ 50%, depths 10–15 ≈ 10–20%, depth 20 ≈ 0–5%. The bot doesn't adapt to the party, which matters most against Blessed parties and realm lords, so human players should sit well above it. Abyss runs from depth 1 end between nights 11 and 25.
+- Before v3 (bot with every unlock, 16 seeds): depth 1 ≈ 88% wins, depths 2–3 ≈ 70%, depth 5 ≈ 45%, depth 8 ≈ 15%. Raids last 30–45 s, and night 10 runs 55–85 s. The first descent with the starter kit wins ≈ 85%. Abyss runs end between nights 11 and 21, which spreads out the night-15/20/30 feats.
 - In hand-played sessions the first nights at depth 1 felt easy for a deliberate player, and the night-10 champion was the first real threat. The ladder carries the difficulty from there.

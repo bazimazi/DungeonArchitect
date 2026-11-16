@@ -13,6 +13,7 @@ import {
   UNSHAKABLE,
   isChampion,
   type MutatorId,
+  type OmenId,
   MINIONS,
   MONSTERS,
   PIECES,
@@ -55,6 +56,8 @@ export interface RaidMods {
   /** Architect id, for architect-specific rules. */
   arch?: string;
   mutators?: MutatorId[];
+  /** Omens the player chose for the run. */
+  omens?: OmenId[];
   relics: RelicId[];
   tiers: Partial<Record<PieceId, number>>;
 }
@@ -87,9 +90,15 @@ export interface Status {
   stun: number;
   /** Inspired by a bard or war cry: faster, stronger, fearless. */
   insp: number;
+  /** Hexed by a totem: takes extra damage. */
+  hex: number;
+  /** The Shade's veil: monsters can't see her. */
+  veil: number;
 }
 const noStatus = (): Status => ({
   insp: 0,
+  hex: 0,
+  veil: 0,
   burn: 0,
   poison: 0,
   frozen: 0,
@@ -133,6 +142,7 @@ export type HeroState =
   | "flee"
   | "disarm"
   | "dig"
+  | "throw"
   | "falling"
   | "dead"
   | "escaped";
@@ -160,8 +170,18 @@ export interface Hero extends UnitBase {
   touchedHoard: boolean;
   lastSource: string;
   lastType: DmgType;
-  /** Champion ability timer (blink, war cry). */
+  /** Champion ability timer (blink, war cry, roots, veil). */
   skillT: number;
+  /** Sapper bombs left. */
+  bombs: number;
+  /** Ticks until a fallen hero rises again (Hollow King, Undying). */
+  reviveT: number;
+  /** Has already risen once (pays half bounty the second time). */
+  revived: boolean;
+  /** Damage multiplier while hexed. */
+  hexMul: number;
+  /** What set the hero burning (credited for burn kills). */
+  burnSrc: string;
 }
 export interface Monster extends UnitBase {
   side: "monster";
@@ -173,6 +193,9 @@ export interface Monster extends UnitBase {
   reforms: number;
   reformT: number;
   hidden: boolean;
+  /** Gargoyles sleep as statues: immune and untargetable. */
+  dormant: boolean;
+  idleT: number;
   raiseT: number;
   pieceId: number;
 }
@@ -211,6 +234,8 @@ export interface Projectile {
   splash: number;
   life: number;
   source: string;
+  /** Monster that fired it (life drain). */
+  owner: number;
 }
 
 export type RaidEvent =
@@ -266,6 +291,14 @@ export type RaidEvent =
   | { k: "smash"; x: number; y: number }
   | { k: "inspire"; uid: number; x: number; y: number }
   | { k: "purge"; x: number; y: number }
+  | { k: "bomb"; uid: number; fx: number; fy: number; x: number; y: number }
+  | { k: "root"; uid: number; x: number; y: number }
+  | { k: "veil"; uid: number; x: number; y: number }
+  | { k: "rise"; uid: number; x: number; y: number }
+  | { k: "slam"; x: number; y: number }
+  | { k: "stone"; x: number; y: number }
+  | { k: "pit"; x: number; y: number; open: boolean }
+  | { k: "strike"; fx: number; fy: number; x: number; y: number }
   | { k: "step"; uid: number };
 
 export interface RaidResult {
@@ -297,7 +330,12 @@ const DISARMABLE: TrapId[] = [
   "boulder",
   "keg",
   "pylon",
+  "crusher",
+  "totem",
 ];
+const TRAP_KINDS = new Set<string>(
+  (Object.keys(PIECES) as PieceId[]).filter((k) => PIECES[k].kind === "trap"),
+);
 /** Floor plates that floating heroes drift over. */
 const FLOOR_PLATES: TrapId[] = ["spikes", "frost", "trapdoor", "spring"];
 const ROGUE_DETECT = 2;
@@ -318,8 +356,16 @@ export class Raid {
   tarCool = new Map<number, number>();
   clouds: { x: number; y: number; t: number }[] = [];
   pendingPowers: { power: PowerId; x: number; y: number; t: number }[] = [];
+  /** Open sinkholes. */
+  pits: { x: number; y: number; t: number }[] = [];
+  /** Hollow King: heroes he can still raise tonight. */
+  riseCharges = 3;
+  undyingUsed = false;
+  phylacteryUsed = false;
   hoard: number;
   hoardMax: number;
+  /** Treasure in the hoard when the raid began. */
+  readonly hoardStart: number;
   dread = 3;
   dreadMax = 15;
   gold = 0;
@@ -334,6 +380,7 @@ export class Raid {
   private fieldHoard: Float64Array | null = null;
   private fieldExit: Float64Array | null = null;
   private fieldDig: Float64Array | null = null;
+  private fieldThane: Float64Array | null = null;
   private targetFields = new Map<number, Float64Array>();
   private dirty = true;
   stats = {
@@ -346,15 +393,18 @@ export class Raid {
   };
   readonly relics: Set<RelicId>;
   readonly mutators: Set<MutatorId>;
+  readonly omens: Set<OmenId>;
 
   constructor(setup: RaidSetup) {
     this.setup = setup;
     this.layout = cloneLayout(setup.layout);
     this.rng = new Rng(setup.seed);
     this.hoard = setup.hoard;
+    this.hoardStart = setup.hoard;
     this.hoardMax = setup.hoardMax ?? setup.hoard;
     this.relics = new Set(setup.mods.relics);
     this.mutators = new Set(setup.mods.mutators ?? []);
+    this.omens = new Set(setup.mods.omens ?? []);
     if (this.relics.has("soulSiphon")) {
       this.dread = 8;
       this.dreadMax = 20;
@@ -370,11 +420,12 @@ export class Raid {
           disabled: false,
           known: false,
           used: false,
+          // Cycles are staggered by position so shared links keep timings.
           phase:
             o.kind === "flame"
-              ? (o.id * 0.9) % 4
+              ? ((o.x * 7 + o.y * 3) * 0.9) % 4
               : o.kind === "gas"
-                ? (o.id * 1.3) % 5
+                ? ((o.x * 5 + o.y * 7) * 1.3) % 5
                 : 0,
           active: false,
           warn: false,
@@ -394,14 +445,19 @@ export class Raid {
         );
         m.pieceId = o.id;
         if (o.kind === "mimic") m.hidden = true;
+        if (o.kind === "gargoyle") m.dormant = true;
         if (o.kind === "skeleton")
           m.reforms = this.relics.has("restless") ? 2 : 1;
       }
     }
     for (const t of this.traps) {
       if (t.kind === "saw") t.pos = 0;
-      // Cartographers: heroes arrive knowing the map.
-      if (this.mutators.has("scouts") && t.kind !== "lure") t.known = true;
+      // Cartographers and Betrayal: heroes arrive knowing the map.
+      if (
+        (this.mutators.has("scouts") || this.omens.has("betrayal")) &&
+        t.kind !== "lure"
+      )
+        t.known = true;
     }
     const e = this.layout.entrance;
     setup.party.forEach((p, i) => {
@@ -434,7 +490,8 @@ export class Raid {
   private makeHero(cls: HeroClass, elite: boolean, x: number, y: number): Hero {
     const d = HEROES[cls];
     const m = this.setup.mods;
-    const hp = Math.round(d.hp * m.heroHp * (elite ? 1.6 : 1));
+    const wrath = isChampion(cls) && this.omens.has("wrath") ? 1.4 : 1;
+    const hp = Math.round(d.hp * m.heroHp * (elite ? 1.6 : 1) * wrath);
     const h: Hero = {
       ...this.base(x, y, hp),
       side: "hero",
@@ -452,7 +509,7 @@ export class Raid {
       actY: 0,
       loot: 0,
       disarms: cls === "rogue" ? (elite ? 2 : 1) : 0,
-      digs: cls === "dwarf" ? 5 : 0,
+      digs: cls === "dwarf" ? 5 : cls === "thane" ? 10 : 0,
       lureDone: false,
       healT: 0,
       spawnTick: 0,
@@ -460,7 +517,21 @@ export class Raid {
       touchedHoard: false,
       lastSource: "",
       lastType: "phys",
-      skillT: cls === "archmage" ? s(5) : cls === "warlord" ? s(3) : 0,
+      skillT:
+        cls === "archmage"
+          ? s(5)
+          : cls === "warlord"
+            ? s(3)
+            : cls === "druid"
+              ? s(2.5)
+              : cls === "shade"
+                ? s(4)
+                : 0,
+      bombs: cls === "sapper" ? (elite ? 2 : 1) : 0,
+      reviveT: 0,
+      revived: false,
+      hexMul: 1,
+      burnSrc: "flame",
     };
     h.alive = false;
     this.heroes.push(h);
@@ -489,6 +560,8 @@ export class Raid {
       reforms: 0,
       reformT: 0,
       hidden: false,
+      dormant: false,
+      idleT: 0,
       raiseT: 0,
       pieceId: -1,
     };
@@ -524,8 +597,21 @@ export class Raid {
     t.known = true;
     this.dirty = true;
   }
+  /** Trap cycle speed: Oiled Gears and the Tinkerer both shorten it. */
+  private rearmMul() {
+    return (
+      (this.relics.has("quickHands") ? 0.65 : 1) *
+      (this.setup.mods.arch === "tinkerer" ? 0.75 : 1)
+    );
+  }
   private rearm(sec: number) {
-    return s(this.relics.has("quickHands") ? sec * 0.65 : sec);
+    return s(sec * this.rearmMul());
+  }
+  /** Set a hero burning; Ember Heart doubles every burn. */
+  private burn(h: Hero, sec: number, src: string) {
+    const t = s(this.relics.has("emberHeart") ? sec * 2 : sec);
+    if (t >= h.st.burn) h.burnSrc = src;
+    h.st.burn = Math.max(h.st.burn, t);
   }
 
   private dangerCost = (x: number, y: number) => {
@@ -555,8 +641,13 @@ export class Raid {
       this.dangerCost,
     );
     this.fieldDig = distanceField(l, l.hoard.x, l.hoard.y, this.dangerCost, 18);
+    this.fieldThane = distanceField(l, l.hoard.x, l.hoard.y, undefined, 10);
     this.targetFields.clear();
     this.dirty = false;
+  }
+  private thaneField() {
+    if (this.dirty || !this.fieldThane) this.rebuild();
+    return this.fieldThane!;
   }
   private fieldTo(x: number, y: number) {
     if (this.dirty) this.rebuild();
@@ -576,13 +667,19 @@ export class Raid {
     type: DmgType,
     source: string,
     crit = false,
-  ) {
-    if (!u.alive) return;
+  ): number {
+    if (!u.alive) return 0;
+    if (u.side === "monster" && u.dormant) return 0;
     let amt = raw;
     if (u.side === "hero") {
       if (type === "phys" || type === "crush") amt = Math.max(1, amt - u.armor);
       if (u.st.frozen > 0) amt *= this.relics.has("frostbite") ? 2 : 1.5;
       if (u.st.vuln > 0) amt *= 1.35;
+      if (u.st.hex > 0) amt *= u.hexMul;
+      if (type === "fire" && this.mutators.has("fireproof")) amt *= 0.5;
+      if (type === "poison" && this.relics.has("venom")) amt *= 2;
+      if (this.relics.has("lastStand") && this.hoard * 2 < this.hoardMax)
+        amt *= 1.3;
       if (isChampion(u.cls) && type === "crush") amt *= 0.7;
       if (this.relics.has("huntersMark") && (u.elite || isChampion(u.cls)))
         amt *= 1.25;
@@ -595,9 +692,10 @@ export class Raid {
       u.lastType = type;
       this.stats.damage[source] =
         (this.stats.damage[source] ?? 0) + Math.min(amt, u.hp);
-    }
+    } else if (this.relics.has("stoneskin")) amt *= 0.8;
     amt = Math.round(amt);
-    if (amt <= 0) return;
+    if (amt <= 0) return 0;
+    const dealt = Math.min(amt, u.hp);
     u.hp -= amt;
     u.lastHit = this.tick;
     this.emit({
@@ -615,6 +713,21 @@ export class Raid {
       if (u.side === "hero") this.killHero(u);
       else this.killMonster(u);
     }
+    return dealt;
+  }
+  /** A monster's blow lands: life drain from wraiths and Blood Pact. */
+  private monsterHit(
+    m: Monster,
+    target: Hero,
+    dmg: number,
+    type: DmgType,
+    source: string,
+  ) {
+    const dealt = this.damage(target, dmg, type, source);
+    const drain =
+      (m.kind === "wraith" ? 0.5 : 0) + (this.relics.has("vampiric") ? 0.3 : 0);
+    if (drain > 0 && dealt > 0 && m.alive && m.hp < m.maxHp)
+      m.hp = Math.min(m.maxHp, m.hp + Math.max(1, Math.round(dealt * drain)));
   }
   private killHero(h: Hero) {
     h.alive = false;
@@ -625,10 +738,17 @@ export class Raid {
     else this.combo = 1;
     this.lastKill = this.tick;
     this.bestCombo = Math.max(this.bestCombo, this.combo);
+    const big = h.elite || isChampion(h.cls);
     let gold = Math.round(
-      d.bounty * (1 + 0.06 * (this.setup.night - 1)) * (h.elite ? 1.5 : 1),
+      d.bounty *
+        (1 + 0.06 * (Math.min(this.setup.night, 20) - 1)) *
+        (h.elite ? 1.5 : 1) *
+        (big && this.relics.has("wanted") ? 3 : 1) *
+        (this.mutators.has("rich") ? 1.5 : 1) *
+        (h.revived ? 0.5 : 1),
     );
     if (this.relics.has("bloodMoney")) gold += 4;
+    if (this.relics.has("toll") && TRAP_KINDS.has(h.lastSource)) gold += 5;
     const comboGold =
       Math.max(0, this.combo - 1) * 3 * (this.relics.has("echoes") ? 2 : 1);
     gold += comboGold;
@@ -658,6 +778,24 @@ export class Raid {
       this.hoard = Math.min(this.hoardMax, this.hoard + h.loot);
       this.emit({ k: "recover", uid: h.uid, x: h.x, y: h.y, amount: h.loot });
       h.loot = 0;
+    }
+    // The Hollow King raises the fallen near him; Undying spares the first.
+    if (!isChampion(h.cls) && !h.revived) {
+      const king = this.livingHeroes().find(
+        (k) => k.cls === "revenant" && this.d2(k.x, k.y, h.x, h.y) <= 3.5,
+      );
+      if (king && this.riseCharges > 0) {
+        this.riseCharges--;
+        h.reviveT = s(1.6);
+        h.revived = true;
+        return;
+      }
+      if (this.mutators.has("undying") && !this.undyingUsed) {
+        this.undyingUsed = true;
+        h.reviveT = s(1.6);
+        h.revived = true;
+        return;
+      }
     }
     for (const m of this.monsters) {
       if (m.alive && m.kind === "necro" && this.d2(m.x, m.y, h.x, h.y) <= 3.5) {
@@ -715,6 +853,41 @@ export class Raid {
     );
   }
 
+  /** A fallen hero stands up again at half health. */
+  private rise(h: Hero) {
+    h.alive = true;
+    h.hp = Math.max(1, Math.round(h.maxHp * 0.5));
+    h.st = noStatus();
+    h.state = this.retreating ? "escape" : "seek";
+    h.next = null;
+    h.hop = null;
+    h.target = -1;
+    h.atkT = s(0.6);
+    this.emit({ k: "rise", uid: h.uid, x: h.x, y: h.y });
+  }
+  /** Drop a hero back to the entrance (trapdoor, sinkhole). */
+  private dropHero(h: Hero) {
+    this.emit({ k: "fall", uid: h.uid, x: h.x, y: h.y });
+    this.stats.falls++;
+    if (h.loot > 0) {
+      this.hoard = Math.min(this.hoardMax, this.hoard + h.loot);
+      this.emit({
+        k: "recover",
+        uid: h.uid,
+        x: h.x,
+        y: h.y,
+        amount: h.loot,
+      });
+      h.loot = 0;
+      if (h.state === "escape" && !this.retreating) h.state = "seek";
+    }
+    h.state = "falling";
+    h.actT = s(1.1);
+    h.next = null;
+    h.hop = null;
+    h.target = -1;
+  }
+
   // ---------- player powers ----------
   cast(power: PowerId, x: number, y: number, cost: number) {
     if (this.dread < cost) return false;
@@ -753,7 +926,55 @@ export class Raid {
           if (h.alive) h.st.slow = Math.max(h.st.slow, s(4));
         }
       }
+    } else if (p.power === "sinkhole") {
+      if (!walkable(this.layout, p.x, p.y)) return;
+      const l = this.layout;
+      if (
+        (p.x === l.entrance.x && p.y === l.entrance.y) ||
+        (p.x === l.hoard.x && p.y === l.hoard.y)
+      )
+        return;
+      this.pits.push({ x: p.x, y: p.y, t: s(4) });
+      this.emit({ k: "pit", x: p.x, y: p.y, open: true });
     }
+  }
+  private updatePits() {
+    if (!this.pits.length) return;
+    for (const pit of this.pits) {
+      pit.t--;
+      for (const h of this.livingHeroes()) {
+        if (h.hop || h.cls === "windcaller") continue;
+        if (Math.floor(h.x) !== pit.x || Math.floor(h.y) !== pit.y) continue;
+        h.lastSource = "sinkhole";
+        this.dropHero(h);
+      }
+      if (pit.t <= 0) this.emit({ k: "pit", x: pit.x, y: pit.y, open: false });
+    }
+    this.pits = this.pits.filter((p) => p.t > 0);
+  }
+  /** Stormcaller: lightning finds the hero nearest the hoard. */
+  private stormcall() {
+    const field = this.hoardField();
+    let best: Hero | null = null;
+    let bd = Infinity;
+    for (const h of this.livingHeroes()) {
+      const tile = this.tileOf(h);
+      const d =
+        field[idx(this.layout, tile.x, tile.y)] - (h.loot > 0 ? 1000 : 0);
+      if (d < bd) {
+        bd = d;
+        best = h;
+      }
+    }
+    if (!best) return;
+    this.emit({
+      k: "strike",
+      fx: best.x,
+      fy: best.y - 4,
+      x: best.x,
+      y: best.y,
+    });
+    this.damage(best, 30, "magic", "stormcall");
   }
   private homeward(h: Hero): HeroState {
     return this.retreating || h.loot > 0 ? "escape" : "seek";
@@ -771,7 +992,8 @@ export class Raid {
       h.state === "loot" ||
       h.state === "lure" ||
       h.state === "disarm" ||
-      h.state === "dig"
+      h.state === "dig" ||
+      h.state === "throw"
     )
       h.state = this.homeward(h);
   }
@@ -798,6 +1020,10 @@ export class Raid {
         h.alive = true;
         this.emit({ k: "spawn", uid: h.uid, x: h.x, y: h.y });
       }
+      if (h.reviveT > 0 && h.state === "dead") {
+        h.reviveT--;
+        if (h.reviveT === 0) this.rise(h);
+      }
     }
     // Retreat horn.
     if (!this.retreating && this.tick >= s(RAID_RETREAT_AT)) {
@@ -812,6 +1038,9 @@ export class Raid {
     const ready = this.pendingPowers.filter((p) => p.t <= 0);
     this.pendingPowers = this.pendingPowers.filter((p) => p.t > 0);
     for (const p of ready) this.resolvePower(p);
+    this.updatePits();
+    if (this.relics.has("stormcall") && this.tick % s(8) === 0)
+      this.stormcall();
 
     this.updateTraps();
     for (const h of this.heroes)
@@ -821,7 +1050,9 @@ export class Raid {
     this.updateFire();
 
     const allSpawned = this.heroes.every((h) => h.spawned);
-    const anyActive = this.heroes.some((h) => h.alive || h.state === "falling");
+    const anyActive = this.heroes.some(
+      (h) => h.alive || h.state === "falling" || h.reviveT > 0,
+    );
     if ((allSpawned && !anyActive) || this.tick >= s(RAID_HARD_LIMIT)) {
       for (const h of this.heroes) {
         if (h.alive) {
@@ -843,7 +1074,7 @@ export class Raid {
       champions: this.stats.champions,
       killed: this.heroes.filter((h) => h.state === "dead").length,
       escaped: this.heroes.filter((h) => h.state === "escaped").length,
-      stolen: this.hoardMax - this.hoard,
+      stolen: Math.max(0, this.hoardStart - this.hoard),
       touchedHoard: this.heroes.some((h) => h.touchedHoard),
       gold: this.gold,
       bestCombo: this.bestCombo,
@@ -895,15 +1126,17 @@ export class Raid {
           if (t.active) {
             if (t.tickT <= 0) {
               t.tickT = s(0.25);
-              const tiles = this.laneTiles(o.x, o.y, o.dir, 3);
+              const tiles = this.laneTiles(
+                o.x,
+                o.y,
+                o.dir,
+                this.relics.has("bonfire") ? 4 : 3,
+              );
               for (const tile of tiles) {
                 this.igniteAt(tile.x, tile.y);
                 for (const h of this.heroesOnTile(tile.x, tile.y)) {
                   this.damage(h, 9 * mul, "fire", "flame");
-                  h.st.burn = Math.max(
-                    h.st.burn,
-                    s(this.relics.has("emberHeart") ? 4 : 2),
-                  );
+                  if (h.alive) this.burn(h, 2, "flame");
                   this.mark(t);
                 }
               }
@@ -1118,6 +1351,45 @@ export class Raid {
           for (const h of chain) this.damage(h, 16 * mul, "magic", "pylon");
           break;
         }
+        case "crusher": {
+          t.phase += TICK / this.rearmMul();
+          t.warn = t.phase >= 2.4;
+          t.active = false;
+          if (t.phase < 3) break;
+          t.phase = 0;
+          t.warn = false;
+          t.active = true;
+          const ahead = this.laneTiles(o.x, o.y, o.dir, 1)[0];
+          if (!ahead) break;
+          this.emit({
+            k: "trap",
+            kind: "crusher",
+            x: ahead.x,
+            y: ahead.y,
+            dir: o.dir,
+          });
+          for (const h of this.heroesOnTile(ahead.x, ahead.y)) {
+            this.damage(h, 45 * mul, "crush", "crusher");
+            if (h.alive)
+              h.st.stun = Math.max(h.st.stun, s(isChampion(h.cls) ? 0.5 : 1));
+            this.mark(t);
+          }
+          break;
+        }
+        case "totem": {
+          t.active = false;
+          if (this.tick % 5 !== 0) break;
+          const cx = o.x + 0.5;
+          const cy = o.y + 0.5;
+          const hexMul = 1 + 0.2 * mul;
+          for (const h of this.livingHeroes()) {
+            if (this.d2(h.x, h.y, cx, cy) > 2.05) continue;
+            h.st.hex = Math.max(h.st.hex, s(0.5));
+            h.hexMul = hexMul;
+            t.active = true;
+          }
+          break;
+        }
         case "keg": {
           if (t.used) break;
           if (t.fuse < 0) {
@@ -1178,7 +1450,7 @@ export class Raid {
     if (t.kind === "tar") {
       const k = idx(this.layout, x, y);
       if (!this.tarFire.has(k) && !this.tarCool.has(k)) {
-        this.tarFire.set(k, this.relics.has("emberHeart") ? 6 : 4);
+        this.tarFire.set(k, this.relics.has("emberHeart") ? 8 : 4);
         this.emit({ k: "ignite", x, y });
       }
     } else if (t.kind === "keg" && !t.used && t.fuse < 0) {
@@ -1195,16 +1467,14 @@ export class Raid {
       const x = k % l.w;
       const y = (k - x) / l.w;
       const left = v - TICK;
-      // Spread to adjacent tar after a short delay.
-      if (v > 3.5 && left <= 3.5)
+      // Spread to adjacent tar half a second after catching.
+      const full = this.relics.has("emberHeart") ? 8 : 4;
+      if (v > full - 0.5 && left <= full - 0.5)
         for (let d = 0; d < 4; d++) this.igniteAt(x + DX[d], y + DY[d]);
       if (this.tick % s(0.5) === 0) {
         for (const h of this.heroesOnTile(x, y)) {
           this.damage(h, 7 * this.tierMul("tar"), "fire", "tar");
-          h.st.burn = Math.max(
-            h.st.burn,
-            s(this.relics.has("emberHeart") ? 4 : 2),
-          );
+          if (h.alive) this.burn(h, 2, "tar");
         }
         for (let dy = -1; dy <= 1; dy++)
           for (let dx = -1; dx <= 1; dx++) {
@@ -1220,6 +1490,25 @@ export class Raid {
     }
   }
 
+  /** Sapper: wreck the most dangerous trap in sight. */
+  private findBombTarget(h: Hero) {
+    let best: TrapState | null = null;
+    let bv = 0;
+    for (const t of this.traps) {
+      if (t.disabled || t.kind === "lure" || (t.kind === "keg" && t.used))
+        continue;
+      const cx = t.obj.x + 0.5;
+      const cy = t.obj.y + 0.5;
+      if (this.d2(h.x, h.y, cx, cy) > 3.5) continue;
+      if (!lineOfSight(this.layout, h.x, h.y, cx, cy)) continue;
+      const v = PIECES[t.kind].cost * this.tierMul(t.kind);
+      if (v > bv) {
+        bv = v;
+        best = t;
+      }
+    }
+    return best;
+  }
   /** A hero arrives on a tile center (or lands). Floor triggers fire here. */
   private onEnter(h: Hero, x: number, y: number) {
     const t = this.trapAt(x, y);
@@ -1267,25 +1556,8 @@ export class Raid {
         t.cd = this.rearm(5);
         this.mark(t);
         this.emit({ k: "trap", kind: "trapdoor", x, y, dir: 0 });
-        this.emit({ k: "fall", uid: h.uid, x: h.x, y: h.y });
-        this.stats.falls++;
-        if (h.loot > 0) {
-          this.hoard = Math.min(this.hoardMax, this.hoard + h.loot);
-          this.emit({
-            k: "recover",
-            uid: h.uid,
-            x: h.x,
-            y: h.y,
-            amount: h.loot,
-          });
-          h.loot = 0;
-          if (h.state === "escape" && !this.retreating) h.state = "seek";
-        }
-        h.state = "falling";
-        h.actT = s(1.1);
-        h.next = null;
-        h.hop = null;
-        h.target = -1;
+        h.lastSource = "trapdoor";
+        this.dropHero(h);
         break;
       }
       case "spring": {
@@ -1317,6 +1589,16 @@ export class Raid {
     dur: number,
     height: number,
   ) {
+    // Being thrown interrupts looting, disarming, digging and bombing.
+    if (
+      u.side === "hero" &&
+      (u.state === "loot" ||
+        u.state === "lure" ||
+        u.state === "disarm" ||
+        u.state === "dig" ||
+        u.state === "throw")
+    )
+      u.state = this.homeward(u);
     u.hop = {
       fx: u.x,
       fy: u.y,
@@ -1341,6 +1623,8 @@ export class Raid {
       "vuln",
       "stun",
       "insp",
+      "hex",
+      "veil",
     ] as const)
       if (st[key] > 0) st[key]--;
     if (h.state === "falling") {
@@ -1357,17 +1641,23 @@ export class Raid {
           h,
           this.relics.has("despair") ? 35 : 12,
           "crush",
-          "trapdoor",
+          h.lastSource === "sinkhole" ? "sinkhole" : "trapdoor",
         );
       }
       return;
     }
     // DoTs.
     if (this.tick % s(0.5) === 0) {
-      if (st.burn > 0)
-        this.damage(h, 4, "fire", h.lastSource === "tar" ? "tar" : "flame");
+      if (st.burn > 0) this.damage(h, 4, "fire", h.burnSrc);
       if (st.poison > 0 && h.alive) this.damage(h, 3, "poison", "gas");
       if (!h.alive) return;
+    }
+    // Nyx the Shade: a veil every 8s hides her from monsters.
+    if (h.cls === "shade" && h.skillT <= 0 && !h.hop) {
+      h.skillT = s(8);
+      st.veil = s(3);
+      this.emit({ k: "veil", uid: h.uid, x: h.x, y: h.y });
+      for (const m of this.monsters) if (m.target === h.uid) m.target = -1;
     }
     // Paladin aura.
     if (h.cls === "paladin" && this.tick % s(1) === 0) {
@@ -1422,12 +1712,36 @@ export class Raid {
       h.state === "loot" ||
       h.state === "lure" ||
       h.state === "disarm" ||
-      h.state === "dig"
+      h.state === "dig" ||
+      h.state === "throw"
     ) {
       h.actT--;
       if (h.actT > 0) return;
+      if (h.state === "throw") {
+        h.bombs--;
+        h.state = this.homeward(h);
+        const t = this.trapAt(h.actX, h.actY);
+        if (t && !t.disabled) {
+          const cx = t.obj.x + 0.5;
+          const cy = t.obj.y + 0.5;
+          this.emit({ k: "bomb", uid: h.uid, fx: h.x, fy: h.y, x: cx, y: cy });
+          if (t.kind === "keg" && !t.used) this.explodeKeg(t);
+          else {
+            t.disabled = true;
+            this.dirty = true;
+          }
+          for (const m of this.monsters) {
+            if (m.alive && !m.hidden && this.d2(m.x, m.y, cx, cy) <= 1.3)
+              this.damage(m, 25, "crush", "sapper");
+          }
+        }
+        return;
+      }
       if (h.state === "loot") {
-        const take = Math.min(HEROES[h.cls].loot, this.hoard);
+        const take = Math.min(
+          HEROES[h.cls].loot + (this.mutators.has("thieves") ? 1 : 0),
+          this.hoard,
+        );
         h.loot = take;
         this.hoard -= take;
         h.state = "escape";
@@ -1465,6 +1779,39 @@ export class Raid {
         h.state = this.homeward(h);
       }
       return;
+    }
+
+    // Druid: roots monsters nearby.
+    if (h.cls === "druid" && h.skillT <= 0 && st.fear <= 0) {
+      let any = false;
+      for (const m of this.monsters) {
+        if (!m.alive || m.hidden || m.dormant) continue;
+        if (this.d2(m.x, m.y, h.x, h.y) > 2.5) continue;
+        m.st.stun = Math.max(m.st.stun, s(2));
+        any = true;
+      }
+      if (any) {
+        h.skillT = s(6);
+        h.lastAtk = this.tick;
+        this.emit({ k: "root", uid: h.uid, x: h.x, y: h.y });
+      }
+    }
+    // Sapper: bomb the most dangerous trap in sight.
+    if (
+      h.cls === "sapper" &&
+      h.bombs > 0 &&
+      st.fear <= 0 &&
+      (h.state === "seek" || h.state === "escape")
+    ) {
+      const t = this.findBombTarget(h);
+      if (t) {
+        h.state = "throw";
+        h.actT = s(0.9);
+        h.actX = t.obj.x;
+        h.actY = t.obj.y;
+        h.lastAtk = this.tick;
+        return;
+      }
     }
 
     // Healing.
@@ -1507,8 +1854,8 @@ export class Raid {
     }
 
     const feared = st.fear > 0;
-    // Combat (not while fleeing).
-    if (!feared) {
+    // Combat (not while fleeing or veiled).
+    if (!feared && st.veil <= 0) {
       const target = this.pickHeroTarget(h);
       if (target) {
         h.target = target.uid;
@@ -1549,6 +1896,23 @@ export class Raid {
         cur.y === l.entrance.y &&
         this.atCenter(h)
       ) {
+        // Phylactery: the first thief to reach the stairs drops the loot.
+        if (
+          h.loot > 0 &&
+          this.relics.has("phylactery") &&
+          !this.phylacteryUsed
+        ) {
+          this.phylacteryUsed = true;
+          this.hoard = Math.min(this.hoardMax, this.hoard + h.loot);
+          this.emit({
+            k: "recover",
+            uid: h.uid,
+            x: h.x,
+            y: h.y,
+            amount: h.loot,
+          });
+          h.loot = 0;
+        }
         h.alive = false;
         h.state = "escaped";
         if (h.loot > 0) this.emit({ k: "stolen", uid: h.uid, amount: h.loot });
@@ -1601,7 +1965,11 @@ export class Raid {
       return;
     }
     const field =
-      h.cls === "dwarf" && h.digs > 0 ? this.digField() : this.hoardField();
+      h.cls === "dwarf" && h.digs > 0
+        ? this.digField()
+        : h.cls === "thane" && h.digs > 0
+          ? this.thaneField()
+          : this.hoardField();
     this.moveToward(h, l.hoard.x, l.hoard.y, field);
   }
 
@@ -1657,7 +2025,7 @@ export class Raid {
   }
 
   private healMul() {
-    return this.mutators.has("blessed") ? 1.5 : 1;
+    return this.mutators.has("blessed") ? 1.35 : 1;
   }
 
   private reachable(h: Hero, m: Monster) {
@@ -1670,6 +2038,13 @@ export class Raid {
   }
 
   private pickHeroTarget(h: Hero): Monster | null {
+    // Wraiths in the walls can only be struck from close by.
+    for (const m of this.monsters) {
+      if (m.kind !== "wraith" || !m.alive) continue;
+      if (walkable(this.layout, Math.floor(m.x), Math.floor(m.y))) continue;
+      if (this.d2(h.x, h.y, m.x, m.y) <= Math.min(h.range, 1.6) + 0.25)
+        return m;
+    }
     // Stone golems demand to be fought first.
     for (const m of this.monsters) {
       if (m.kind !== "golem" || !m.alive) continue;
@@ -1679,13 +2054,26 @@ export class Raid {
     }
     const cur =
       h.target >= 0
-        ? this.monsters.find((m) => m.uid === h.target && m.alive && !m.hidden)
+        ? this.monsters.find(
+            (m) => m.uid === h.target && m.alive && !m.hidden && !m.dormant,
+          )
         : undefined;
-    if (cur && this.d2(h.x, h.y, cur.x, cur.y) <= h.engage + 1.2) return cur;
+    if (
+      cur &&
+      this.d2(h.x, h.y, cur.x, cur.y) <= h.engage + 1.2 &&
+      (cur.kind !== "wraith" ||
+        walkable(this.layout, Math.floor(cur.x), Math.floor(cur.y)))
+    )
+      return cur;
     let best: Monster | null = null;
     let bestD = Infinity;
     for (const m of this.monsters) {
-      if (!m.alive || m.hidden) continue;
+      if (!m.alive || m.hidden || m.dormant) continue;
+      if (
+        m.kind === "wraith" &&
+        !walkable(this.layout, Math.floor(m.x), Math.floor(m.y))
+      )
+        continue;
       const d = this.d2(h.x, h.y, m.x, m.y);
       const attackingMe = m.target === h.uid && d <= 1.6;
       if (d > h.engage && !attackingMe) continue;
@@ -1795,12 +2183,12 @@ export class Raid {
           if (u.side === "hero" && !walkable(l, n.x, n.y)) {
             const t = tileAt(l, n.x, n.y);
             if (
-              u.cls === "dwarf" &&
+              (u.cls === "dwarf" || u.cls === "thane") &&
               u.digs > 0 &&
               (t === T.Rock || t === T.Vein)
             ) {
               u.state = "dig";
-              u.actT = s(2.2);
+              u.actT = s(u.cls === "thane" ? 1.6 : 2.2);
               u.actX = n.x;
               u.actY = n.y;
               this.emit({ k: "dig", x: n.x, y: n.y, done: false });
@@ -1836,6 +2224,8 @@ export class Raid {
     const dy = ty - u.y;
     const d = Math.sqrt(dx * dx + dy * dy);
     let speed = u.side === "hero" ? u.speed : u.stats.speed;
+    if (u.side === "hero" && u.cls === "thane" && u.state === "escape")
+      speed *= 1.1;
     if (u.st.slow > 0) speed *= 0.5;
     if (u.side === "hero") {
       const tr = this.trapAt(Math.floor(u.x), Math.floor(u.y));
@@ -1846,7 +2236,11 @@ export class Raid {
         u.cls !== "windcaller" &&
         u.cls !== "warlord"
       ) {
-        speed *= this.relics.has("quicksilver") ? 0.28 : 0.45;
+        // Tar holds heroes at half speed (a crawl with Quicksilver), and the
+        // muck lingers for a moment after they leave. It doesn't stack.
+        speed =
+          (speed / (u.st.slow > 0 ? 0.5 : 1)) *
+          (this.relics.has("quicksilver") ? 0.3 : 0.5);
         u.st.slow = Math.max(u.st.slow, s(0.6));
       }
       if (u.st.fear > 0) speed *= 1.15;
@@ -1882,12 +2276,37 @@ export class Raid {
       return;
     }
     if (m.hidden) return;
+    if (m.dormant) {
+      // A gargoyle wakes when a hero comes close, with a stunning slam.
+      const near = this.livingHeroes().filter(
+        (h) => !h.hop && this.d2(h.x, h.y, m.x, m.y) <= 1.6,
+      );
+      if (!near.length) return;
+      m.dormant = false;
+      m.idleT = 0;
+      m.lastAtk = this.tick;
+      m.atkT = s(0.8);
+      this.emit({ k: "slam", x: m.x, y: m.y });
+      for (const h of this.livingHeroes()) {
+        if (h.hop || this.d2(h.x, h.y, m.x, m.y) > 1.6) continue;
+        this.damage(h, m.dmg * 1.7, "crush", "gargoyle");
+        if (h.alive)
+          h.st.stun = Math.max(h.st.stun, s(isChampion(h.cls) ? 0.5 : 1));
+      }
+      return;
+    }
+    if (m.st.stun > 0) {
+      m.st.stun--;
+      if (m.atkT > 0) m.atkT--;
+      return;
+    }
     if (m.atkT > 0) m.atkT--;
     if (m.hop) {
       m.hop = null;
     }
     const st = m.stats;
-    const heroes = this.livingHeroes().filter((h) => !h.hop);
+    const ghostly = m.kind === "wraith";
+    const heroes = this.livingHeroes().filter((h) => !h.hop && h.st.veil <= 0);
     let target: Hero | null = null;
     let best = Infinity;
     const homeX = m.homeX + 0.5;
@@ -1898,9 +2317,12 @@ export class Raid {
       const fromHome = this.d2(h.x, h.y, homeX, homeY);
       if (fromHome > st.leash + st.aggro) continue;
       if (d > st.aggro && m.target !== h.uid) continue;
-      if (!lineOfSight(this.layout, m.x, m.y, h.x, h.y)) continue;
+      if (!ghostly && !lineOfSight(this.layout, m.x, m.y, h.x, h.y)) continue;
       const taunt =
-        (h.cls === "knight" || h.cls === "paladin") && d <= 2.5 ? -3 : 0;
+        (h.cls === "knight" || h.cls === "paladin" || h.cls === "thane") &&
+        d <= 2.5
+          ? -3
+          : 0;
       const score = d + taunt;
       if (score < best) {
         best = score;
@@ -1909,6 +2331,7 @@ export class Raid {
     }
     if (target) {
       m.target = target.uid;
+      m.idleT = 0;
       const d = this.d2(m.x, m.y, target.x, target.y);
       const reach = Math.max(st.range, 1.05);
       if (d <= reach) {
@@ -1933,7 +2356,7 @@ export class Raid {
                   : m.kind === "spider"
                     ? "web"
                     : "arrow";
-            this.spawnProjectile(
+            const p = this.spawnProjectile(
               kind,
               m.x,
               m.y,
@@ -1947,10 +2370,22 @@ export class Raid {
               m.kind,
               kind === "arrow" ? 11 : kind === "web" ? 8 : 7,
             );
+            p.owner = m.uid;
           } else {
-            this.damage(target, m.dmg, st.magic ? "magic" : "phys", m.kind);
+            this.monsterHit(
+              m,
+              target,
+              m.dmg,
+              st.magic ? "magic" : "phys",
+              m.kind,
+            );
             if (m.kind === "ghost") this.frighten(target, 2.2);
-            if (m.kind === "ogre" && target.alive && !isChampion(target.cls))
+            if (
+              m.kind === "ogre" &&
+              target.alive &&
+              !isChampion(target.cls) &&
+              !UNSHAKABLE.includes(target.cls)
+            )
               this.knockback(target, m);
           }
         }
@@ -1963,6 +2398,9 @@ export class Raid {
       ) {
         if (st.range > 1.5 && this.d2(m.x, m.y, homeX, homeY) >= st.leash) {
           // Ranged monsters hold position at the edge of their leash.
+        } else if (ghostly) {
+          this.drift(m, target.x, target.y);
+          return;
         } else {
           this.moveToward(m, tt.x, tt.y, this.fieldTo(tt.x, tt.y));
           return;
@@ -1975,9 +2413,39 @@ export class Raid {
       Math.floor(m.y) !== m.homeY ||
       !this.atCenter(m)
     ) {
-      if (walkable(this.layout, m.homeX, m.homeY))
+      if (ghostly) this.drift(m, homeX, homeY);
+      else if (walkable(this.layout, m.homeX, m.homeY))
         this.moveToward(m, m.homeX, m.homeY, this.fieldTo(m.homeX, m.homeY));
+    } else if (m.kind === "gargoyle" && !target) {
+      // Quiet halls: the gargoyle turns back to stone and mends.
+      if (++m.idleT >= s(3)) {
+        m.dormant = true;
+        m.idleT = 0;
+        m.hp = Math.min(m.maxHp, m.hp + Math.round(m.maxHp * 0.5));
+        this.emit({ k: "stone", x: m.x, y: m.y });
+      }
     }
+  }
+  /** Wraiths float straight through rock. */
+  private drift(m: Monster, tx: number, ty: number) {
+    const dx = tx - m.x;
+    const dy = ty - m.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const step = m.stats.speed * (m.st.slow > 0 ? 0.5 : 1) * TICK;
+    m.next = null;
+    if (dx !== 0) m.face = dx < 0 ? -1 : 1;
+    if (d <= step) {
+      m.x = tx;
+      m.y = ty;
+      return;
+    }
+    const nx = m.x + (dx / d) * step;
+    const ny = m.y + (dy / d) * step;
+    const l = this.layout;
+    // Never leave the map or enter bedrock.
+    if (tileAt(l, Math.floor(nx), Math.floor(ny)) === T.Bedrock) return;
+    m.x = nx;
+    m.y = ny;
   }
   private knockback(h: Hero, m: Monster) {
     const dx = h.x - m.x;
@@ -2006,7 +2474,7 @@ export class Raid {
     splash: number,
     source: string,
     speed = 10,
-  ) {
+  ): Projectile {
     const p: Projectile = {
       id: this.pid++,
       kind,
@@ -2023,12 +2491,14 @@ export class Raid {
       splash,
       life: s(2),
       source,
+      owner: -1,
     };
     if (target >= 0) {
       p.vx = speed;
     }
     this.projectiles.push(p);
     this.emit({ k: "shoot", pid: p.id });
+    return p;
   }
   private unitByUid(uid: number): Hero | Monster | undefined {
     return (
@@ -2083,7 +2553,13 @@ export class Raid {
       t.side === "hero" &&
       t.cls === "windcaller" &&
       (p.kind === "dart" || p.kind === "arrow");
-    this.damage(t, p.dmg * (exposed ? 1.5 : 1), p.dtype, p.source);
+    const owner =
+      !p.fromHero && t.side === "hero" && p.owner >= 0
+        ? this.monsters.find((m) => m.uid === p.owner)
+        : undefined;
+    if (owner && t.side === "hero")
+      this.monsterHit(owner, t, p.dmg * (exposed ? 1.5 : 1), p.dtype, p.source);
+    else this.damage(t, p.dmg * (exposed ? 1.5 : 1), p.dtype, p.source);
     if (p.kind === "web" && t.side === "hero" && t.alive)
       t.st.slow = Math.max(t.st.slow, s(2.5));
     if (p.splash > 0) {
@@ -2092,7 +2568,8 @@ export class Raid {
         if (
           u !== t &&
           u.alive &&
-          !(u.side === "monster" && u.hidden) &&
+          !(u.side === "monster" && (u.hidden || u.dormant)) &&
+          !(u.side === "hero" && (u.state === "falling" || u.hop)) &&
           this.d2(u.x, u.y, t.x, t.y) <= p.splash
         ) {
           this.damage(u, p.dmg * 0.6, p.dtype, p.source);
@@ -2101,8 +2578,8 @@ export class Raid {
     }
     if (p.kind === "fireball") {
       this.igniteAt(Math.floor(t.x), Math.floor(t.y));
-      if (!p.fromHero && t.side === "hero")
-        t.st.burn = Math.max(t.st.burn, s(1.5));
+      if (!p.fromHero && t.side === "hero" && t.alive)
+        this.burn(t, 1.5, p.source);
     }
   }
 }

@@ -10,11 +10,16 @@ import {
   HERO_COUNTER,
   MUTATORS,
   NIGHTS,
+  OMENS,
+  OMEN_IDS,
   PIECES,
   POWERS,
+  REALM_LORDS,
   RELICS,
   UNLOCKS,
   depthName,
+  heatOf,
+  heatRenown,
   isChampion,
   rankFor,
   roman,
@@ -23,8 +28,16 @@ import {
   type FeatDef,
   type HeroClass,
   type MutatorId,
+  type OmenId,
   type PieceId,
 } from "../game/defs";
+import {
+  TRIALS,
+  TRIAL_CHAPTERS,
+  chapterOpen,
+  trialStarsTotal,
+  type TrialDef,
+} from "../game/trials";
 import type { Profile } from "../game/profile";
 import {
   nextUnlock,
@@ -127,6 +140,7 @@ export interface TitleOpts {
   onNew(): void;
   onDaily(): void;
   onWorkshop(): void;
+  onTrials(): void;
   onCodex(): void;
   onFeats(): void;
   onSettings(): void;
@@ -149,6 +163,7 @@ export function titleScreen(o: TitleOpts) {
   const records: string[] = [];
   if (p.bestDepth > 0) records.push(`Deepest conquest: depth ${p.bestDepth}`);
   if (p.bestAbyss > 0) records.push(`Abyss record: night ${p.bestAbyss}`);
+  if (p.bestHeat > 0) records.push(`Heat ${p.bestHeat} conquered`);
   return h(
     "div",
     { class: "title-screen" },
@@ -204,10 +219,25 @@ export function titleScreen(o: TitleOpts) {
             {},
             icon("daily"),
             h("b", {}, "Daily"),
-            h("small", {}, o.dailyDone ? "Done today" : "Same for everyone"),
+            h("small", {}, o.dailyDone ? "Done today" : "One seed for all"),
           ),
           o.onDaily,
           `btn tile${o.dailyDone ? " done" : ""}`,
+        ),
+        btn(
+          h(
+            "span",
+            {},
+            icon("crown"),
+            h("b", {}, "Trials"),
+            h(
+              "small",
+              {},
+              `${trialStarsTotal(p.trials)}/${TRIALS.length * 3} stars`,
+            ),
+          ),
+          o.onTrials,
+          "btn tile",
         ),
         btn(
           h(
@@ -275,6 +305,7 @@ export interface SetupChoice {
   biome: BiomeId;
   architect: ArchitectId;
   depth: number;
+  omens: OmenId[];
 }
 export function setupScreen(
   profile: Profile,
@@ -286,13 +317,63 @@ export function setupScreen(
   let biome: BiomeId = biomes[biomes.length - 1];
   let arch: ArchitectId = "mason";
   let depth = profile.maxDepth;
+  const omensOpen = profile.bestHeat >= 0;
+  const omens = new Set<OmenId>(omensOpen ? profile.omens : []);
   const root = h("div", { class: "panel setup" });
+  const omenSection = () => {
+    if (!omensOpen)
+      return h(
+        "p",
+        { class: "muted omen-locked" },
+        "Omens unlock after your first victory: curses that raise the renown you earn.",
+      );
+    const heat = heatOf([...omens]);
+    return h(
+      "div",
+      { class: "omens" },
+      h(
+        "div",
+        { class: "omen-head" },
+        h("b", {}, `Heat ${heat}`),
+        h(
+          "span",
+          {},
+          heat
+            ? `+${Math.round((heatRenown(heat) - 1) * 100)}% renown`
+            : "No omens. Tap to add curses for more renown.",
+        ),
+      ),
+      h(
+        "div",
+        { class: "omen-grid" },
+        ...OMEN_IDS.map((id) => {
+          const o = OMENS[id];
+          return h(
+            "button",
+            {
+              class: `omen${omens.has(id) ? " on" : ""}`,
+              "aria-pressed": omens.has(id) ? "true" : "false",
+              title: o.text,
+              onclick: () => {
+                audio.play("click");
+                if (omens.has(id)) omens.delete(id);
+                else omens.add(id);
+                render();
+              },
+            },
+            h("b", {}, o.name, h("i", {}, ` ${o.heat}`)),
+            h("small", {}, o.text),
+          );
+        }),
+      ),
+    );
+  };
   const render = () => {
     const info = depthInfo(depth);
     const heat = DEPTH_HEAT.slice(2, Math.min(depth, 8) + 1).filter(Boolean);
     if (depth > 8)
       heat.push(
-        `Beyond depth 8, heroes grow ${7 * (depth - 8)}% tougher and parties larger.`,
+        `Beyond depth 8, heroes grow up to ${7 * (depth - 8)}% tougher and parties larger as the nights go on. You start with ${Math.min(80, 5 * (depth - 8))} extra gold.`,
       );
     root.replaceChildren(
       h("h2", {}, "New Descent"),
@@ -332,6 +413,11 @@ export function setupScreen(
         h(
           "div",
           { class: "depth-info" },
+          h(
+            "small",
+            { class: "realm" },
+            `Realm ${roman(info.realm)} · ${info.realmName}`,
+          ),
           h("b", {}, info.name),
           h(
             "div",
@@ -340,10 +426,21 @@ export function setupScreen(
             h(
               "span",
               {},
-              h("small", {}, "Night 10 champion"),
+              h(
+                "small",
+                {},
+                info.lord ? "Realm lord · night 10" : "Night 10 champion",
+              ),
               HEROES[info.boss].name,
             ),
           ),
+          info.lord
+            ? h(
+                "p",
+                { class: "frontier" },
+                "A realm lord's depth: +10 renown for conquering it.",
+              )
+            : null,
           info.mutators.length
             ? h(
                 "div",
@@ -374,6 +471,8 @@ export function setupScreen(
               : null,
         ),
       ),
+      h("h3", {}, "Omens"),
+      omenSection(),
       h("h3", {}, "Architect"),
       h(
         "div",
@@ -441,7 +540,7 @@ export function setupScreen(
         btn("Back", onBack, "btn ghost"),
         btn(
           h("b", {}, "Descend"),
-          () => onStart({ biome, architect: arch, depth }),
+          () => onStart({ biome, architect: arch, depth, omens: [...omens] }),
           "btn primary",
         ),
       ),
@@ -1006,7 +1105,11 @@ export function codexScreen(p: Profile, onClose: () => void) {
         ? show(
             heroArt(c, 84),
             HEROES[c].name,
-            isChampion(c) ? "Champion" : "Hero",
+            REALM_LORDS.includes(c as never)
+              ? "Realm lord"
+              : isChampion(c)
+                ? "Champion"
+                : "Hero",
             HEROES[c].rule,
             `Counter: ${HERO_COUNTER[c]} · Health ${HEROES[c].hp} · Bounty ${HEROES[c].bounty}`,
           )
@@ -1073,6 +1176,19 @@ export function codexScreen(p: Profile, onClose: () => void) {
     );
     return b;
   });
+  const omenCells = OMEN_IDS.map((id) => {
+    const o = OMENS[id];
+    const b = h("button", { class: "cx mutx", "aria-label": o.name }, o.name);
+    b.addEventListener("click", () =>
+      show(
+        icon("skull", "ic huge"),
+        o.name,
+        `Omen · heat ${o.heat} · +${o.heat * 10}% renown`,
+        o.text,
+      ),
+    );
+    return b;
+  });
   const powers = Object.values(POWERS).map((pw) => {
     const b = h("button", { class: "cx" }, icon(powerIcon(pw.id), "ic"));
     b.addEventListener("click", () =>
@@ -1112,6 +1228,8 @@ export function codexScreen(p: Profile, onClose: () => void) {
       h("div", { class: "cx-grid" }, ...relics),
       h("h3", {}, "Dungeon twists"),
       h("div", { class: "cx-grid wide" }, ...mutators),
+      h("h3", {}, "Omens"),
+      h("div", { class: "cx-grid wide" }, ...omenCells),
     ),
     h(
       "div",
@@ -1122,6 +1240,194 @@ export function codexScreen(p: Profile, onClose: () => void) {
       h("span", {}, `Best combo ${p.bestCombo}×`),
       h("span", {}, `Deepest depth ${p.bestDepth}`),
       h("span", {}, `Abyss record ${p.bestAbyss || "–"}`),
+      h("span", {}, `Best heat ${p.bestHeat > 0 ? p.bestHeat : "–"}`),
+      h(
+        "span",
+        {},
+        `Trial stars ${trialStarsTotal(p.trials)}/${TRIALS.length * 3}`,
+      ),
+    ),
+  );
+}
+
+// ---------------- Trials ----------------
+const starRow = (n: number, of = 3) =>
+  h(
+    "span",
+    { class: "trial-stars", "aria-label": `${n} of ${of} stars` },
+    ...Array.from({ length: of }, (_, i) =>
+      icon("star", `ic tiny${i < n ? " got" : ""}`),
+    ),
+  );
+
+export function trialsScreen(
+  p: Profile,
+  onPlay: (t: TrialDef) => void,
+  onClose: () => void,
+) {
+  const total = trialStarsTotal(p.trials);
+  return h(
+    "div",
+    { class: "panel trials" },
+    h(
+      "div",
+      { class: "codex-head" },
+      h("h2", {}, "Trials"),
+      h(
+        "button",
+        { class: "icon-btn", "aria-label": "Close", onclick: onClose },
+        icon("close"),
+      ),
+    ),
+    h(
+      "p",
+      { class: "muted trials-intro" },
+      `Handcrafted dungeons with a fixed party, fixed blueprints and no powers. Pure design. ${total}/${TRIALS.length * 3} stars. Each new star pays 1 renown.`,
+    ),
+    h(
+      "div",
+      { class: "trial-chapters" },
+      ...TRIAL_CHAPTERS.map((c) => {
+        const open = chapterOpen(c, p.trials);
+        const list = TRIALS.filter((t) => t.chapter === c.n);
+        const got = list.reduce((a, t) => a + (p.trials[t.id] ?? 0), 0);
+        return h(
+          "section",
+          { class: `chapter${open ? "" : " locked"}` },
+          h(
+            "div",
+            { class: "chapter-head" },
+            h("b", {}, `${roman(c.n)}. ${c.name}`),
+            h(
+              "small",
+              {},
+              open
+                ? `${got}/${list.length * 3} ★ · ${c.blurb}`
+                : `Needs ${c.needs} stars`,
+            ),
+          ),
+          h(
+            "div",
+            { class: "trial-row" },
+            ...list.map((t) =>
+              h(
+                "button",
+                {
+                  class: `trial-card${(p.trials[t.id] ?? 0) >= 3 ? " done" : ""}`,
+                  disabled: !open,
+                  onclick: () => {
+                    audio.play("click");
+                    onPlay(t);
+                  },
+                },
+                h(
+                  "div",
+                  { class: "trial-party" },
+                  ...t.party.slice(0, 4).map((m) => heroArt(m.cls, 26)),
+                ),
+                h("small", {}, t.id),
+                h("b", {}, t.name),
+                starRow(p.trials[t.id] ?? 0),
+              ),
+            ),
+          ),
+        );
+      }),
+    ),
+  );
+}
+
+export function trialBriefScreen(t: TrialDef, best: number, onGo: () => void) {
+  return h(
+    "div",
+    { class: "panel trial-brief" },
+    h("small", { class: "kicker" }, `Trial ${t.id}`),
+    h("h2", {}, t.name),
+    h("p", {}, t.brief),
+    h(
+      "div",
+      { class: "trial-party big" },
+      ...t.party.map((m) => heroArt(m.cls, 40, m.elite)),
+    ),
+    h(
+      "ul",
+      { class: "trial-goals" },
+      h("li", {}, starRow(1, 1), " Defend the hoard"),
+      h("li", {}, starRow(1, 1), " Leave no survivors"),
+      h("li", {}, starRow(1, 1), ` Both, spending at most ${t.par} gold`),
+    ),
+    h(
+      "p",
+      { class: "muted" },
+      `Budget ${t.gold} gold${t.cap ? ` · up to ${t.cap} pieces` : ""}${t.dig === false ? " · no digging" : ""}. Best: ${best}/3.`,
+    ),
+    h(
+      "div",
+      { class: "actions" },
+      btn(h("b", {}, "Build"), onGo, "btn primary"),
+    ),
+  );
+}
+
+export function trialResultScreen(o: {
+  t: TrialDef;
+  stars: number;
+  defended: boolean;
+  slain: boolean;
+  underPar: boolean;
+  spent: number;
+  newStars: number;
+  feats: FeatDef[];
+  next: TrialDef | null;
+  onRetry(): void;
+  onNext(): void;
+  onList(): void;
+}) {
+  const goal = (ok: boolean, text: string) =>
+    h("li", { class: ok ? "ok" : "miss" }, starRow(ok ? 1 : 0, 1), ` ${text}`);
+  return h(
+    "div",
+    { class: "panel results trial-result" },
+    h("small", { class: "kicker" }, `Trial ${o.t.id}`),
+    h("h2", {}, o.stars >= 3 ? "Mastered" : o.stars > 0 ? "Held" : "Overrun"),
+    h(
+      "div",
+      { class: "stars" },
+      ...[0, 1, 2].map((i) =>
+        h(
+          "span",
+          { class: `star s${i}${i < o.stars ? " got" : ""}` },
+          icon("star"),
+        ),
+      ),
+    ),
+    h(
+      "ul",
+      { class: "trial-goals" },
+      goal(o.defended, "Defend the hoard"),
+      goal(o.slain, "Leave no survivors"),
+      goal(o.underPar, `Spend at most ${o.t.par} gold (spent ${o.spent})`),
+    ),
+    o.newStars
+      ? h("p", { class: "gain" }, `+${o.newStars} renown for new stars`)
+      : null,
+    o.feats.length ? featList(o.feats) : null,
+    o.stars < 3 ? h("p", { class: "combo-hint" }, o.t.hint) : null,
+    h(
+      "div",
+      { class: "actions" },
+      btn("Trials", o.onList, "btn ghost"),
+      btn(
+        "Rebuild",
+        o.onRetry,
+        o.next && o.stars > 0 ? "btn" : "btn primary",
+        o.next && o.stars > 0 ? {} : { autofocus: "" },
+      ),
+      o.next && o.stars > 0
+        ? btn(h("b", {}, "Next trial"), o.onNext, "btn primary", {
+            autofocus: "",
+          })
+        : null,
     ),
   );
 }
@@ -1320,4 +1626,10 @@ export function messageScreen(
 }
 
 export const powerIcon = (id: string) =>
-  id === "rockfall" ? "rock" : id === "chill" ? "chill" : "shriek";
+  id === "rockfall"
+    ? "rock"
+    : id === "chill"
+      ? "chill"
+      : id === "sinkhole"
+        ? "abyss"
+        : "shriek";

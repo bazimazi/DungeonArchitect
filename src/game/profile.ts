@@ -6,6 +6,7 @@ import {
   type ArchitectId,
   type BiomeId,
   type FeatDef,
+  type OmenId,
   type PieceId,
   type PowerId,
   type StatId,
@@ -47,6 +48,12 @@ export interface Profile {
   archWins: ArchitectId[];
   settings: Settings;
   name: string;
+  /** Highest heat at which a descent was won. */
+  bestHeat: number;
+  /** Omens chosen last time (pre-selected on the setup screen). */
+  omens: OmenId[];
+  /** Best stars per trial id. */
+  trials: Record<string, number>;
 }
 
 const PROFILE_KEY = "da.profile.v1";
@@ -67,7 +74,15 @@ export function defaultProfile(): Profile {
     tutorial: 0,
     seen: [],
     daily: {},
-    stats: { kills: 0, fireKills: 0, falls: 0, powerKills: 0, dailies: 0 },
+    stats: {
+      kills: 0,
+      fireKills: 0,
+      falls: 0,
+      powerKills: 0,
+      dailies: 0,
+      trialStars: 0,
+      abyssNights: 0,
+    },
     feats: [],
     archWins: [],
     settings: {
@@ -79,6 +94,9 @@ export function defaultProfile(): Profile {
       speed: 1,
     },
     name: "",
+    bestHeat: -1,
+    omens: [],
+    trials: {},
   };
 }
 
@@ -118,7 +136,15 @@ export function migrateProfile(raw: unknown): Profile {
     archWins: Array.isArray(p.archWins) ? p.archWins : [],
     daily: p.daily ?? {},
     seen: Array.isArray(p.seen) ? p.seen : [],
+    omens: Array.isArray(p.omens) ? p.omens : [],
+    trials: p.trials && typeof p.trials === "object" ? p.trials : {},
+    bestHeat: typeof p.bestHeat === "number" ? p.bestHeat : p.wins ? 0 : -1,
   };
+  // Trial stars are derived from the per-trial record.
+  out.stats.trialStars = Object.values(out.trials).reduce(
+    (a, v) => a + (Number(v) || 0),
+    0,
+  );
   if (p.v === 1) {
     out.maxDepth = (p.maxInfamy ?? 0) + 1;
     out.bestDepth = p.wins ? Math.max(1, p.maxInfamy ?? 0) : 0;

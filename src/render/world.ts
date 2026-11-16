@@ -763,7 +763,7 @@ export class Renderer {
                 flash: false,
                 face: o.dir === 3 ? -1 : 1,
               },
-              o.kind === "mimic",
+              o.kind === "mimic" || o.kind === "gargoyle",
             );
             ctx.restore();
           },
@@ -869,6 +869,7 @@ export class Renderer {
         if (!m.alive) continue;
         if (m.kind === "imp") addLight(m.x, m.y - 0.3, 1.2, "#ff6a3a", 0.6);
         if (m.kind === "ghost") addLight(m.x, m.y - 0.3, 1.2, "#bfe6ff", 0.45);
+        if (m.kind === "wraith") addLight(m.x, m.y - 0.4, 1.1, "#7fffe0", 0.45);
       }
       for (const t of raid.traps) {
         if (t.kind === "flame" && t.active) {
@@ -1092,14 +1093,23 @@ export class Renderer {
     const squash = v.z > 0 ? 1.08 : 1;
     ctx.scale(1 / squash, squash);
     ctx.scale(0.9, 0.9);
+    // The Shade's veil: barely visible while monsters can't see her.
+    if (h.st.veil > 0) ctx.globalAlpha = 0.3 + Math.sin(time * 9) * 0.08;
+    if (h.st.hex > 0) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.16;
+      ctx.drawImage(this.lightSprite("#d070ff"), -0.5, -1.0, 1.0, 1.1);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = h.st.veil > 0 ? 0.3 : 1;
+    }
     if (h.st.insp > 0) {
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = 0.18 + Math.sin(time * 6) * 0.06;
       ctx.drawImage(this.lightSprite("#ffb0d8"), -0.5, -1.0, 1.0, 1.1);
       ctx.globalCompositeOperation = "source-over";
-      ctx.globalAlpha = 1;
+      ctx.globalAlpha = h.st.veil > 0 ? 0.3 : 1;
     }
-    if (h.elite || isChampion(h.cls)) {
+    if ((h.elite || isChampion(h.cls)) && h.st.veil <= 0) {
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = 0.25 + Math.sin(time * 4) * 0.1;
       ctx.drawImage(this.lightSprite("#ffd166"), -0.6, -1.2, 1.2, 1.3);
@@ -1173,7 +1183,7 @@ export class Renderer {
       ctx,
       m.kind,
       { t: time + m.uid, walk: v.walk, atk, flash, face: m.face },
-      m.hidden,
+      m.hidden || m.dormant,
     );
     ctx.restore();
   }
@@ -1209,6 +1219,7 @@ export class Renderer {
           : h.cls === "windcaller"
             ? 0.15
             : 0;
+    if (h.st.veil > 0) return;
     const top = v.y - v.z - 0.95 - lift;
     this.drawBar(
       ctx,
@@ -1222,7 +1233,8 @@ export class Renderer {
       h.state === "loot" ||
       h.state === "lure" ||
       h.state === "disarm" ||
-      h.state === "dig"
+      h.state === "dig" ||
+      h.state === "throw"
     ) {
       const total =
         h.state === "loot"
@@ -1231,14 +1243,20 @@ export class Renderer {
             ? 0.8
             : h.state === "disarm"
               ? 1.2
-              : 2.2;
+              : h.state === "throw"
+                ? 0.9
+                : h.cls === "thane"
+                  ? 1.6
+                  : 2.2;
       const k = 1 - (h.actT * TICK) / total;
       const color =
         h.state === "disarm"
           ? "#7ef0ff"
           : h.state === "dig"
             ? "#e0a060"
-            : "#ffd166";
+            : h.state === "throw"
+              ? "#ff7a4a"
+              : "#ffd166";
       ctx.beginPath();
       ctx.arc(v.x, top - 0.12, 0.16, 0, Math.PI * 2);
       ctx.fillStyle = "rgba(10,6,14,0.8)";
@@ -1667,6 +1685,24 @@ export class Renderer {
         ctx.lineWidth = 0.06;
         ctx.stroke();
       }
+      if (t.kind === "crusher" && t.warn) {
+        for (const tile of this.laneTiles(l, o.x, o.y, o.dir, 1))
+          this.hatch(ctx, tile.x, tile.y, "rgba(255,200,90,0.85)", time);
+      }
+    }
+    // Open sinkholes.
+    for (const p of raid.pits) {
+      const k = Math.min(1, (4 - p.t * TICK) / 0.25, (p.t * TICK) / 0.3);
+      ctx.save();
+      ctx.translate(p.x + 0.5, p.y + 0.55);
+      ctx.fillStyle = "rgba(4,2,8,0.92)";
+      ctx.beginPath();
+      ctx.ellipse(0, 0, 0.42 * k, 0.3 * k, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.strokeStyle = `rgba(200,140,255,${0.5 + 0.3 * Math.sin(time * 8)})`;
+      ctx.lineWidth = 0.05;
+      ctx.stroke();
+      ctx.restore();
     }
   }
 
@@ -1782,6 +1818,7 @@ export class Renderer {
       flame: 3,
       boulder: 8,
       spring: 3,
+      crusher: 1,
     };
     if (kind in laneFor) {
       const lane = this.laneTiles(l, x, y, dir, laneFor[kind]!);
@@ -1829,12 +1866,14 @@ export class Renderer {
       gas: 1.6,
       keg: 1.7,
       pylon: 2.6,
+      totem: 2,
       lure: 0,
     };
-    if (PIECES[kind].kind === "monster") {
+    if (PIECES[kind].kind === "monster" && kind !== "gargoyle") {
       const st = MONSTERS[kind as keyof typeof MONSTERS];
       radius[kind] = Math.max(st.range > 1.5 ? st.range : st.aggro, 1);
     }
+    if (kind === "gargoyle") radius.gargoyle = 1.6;
     const r = radius[kind];
     if (r) {
       ctx.beginPath();

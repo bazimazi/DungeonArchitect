@@ -88,8 +88,13 @@ describe("depths", () => {
     expect(depthInfo(3).boss).toBe("warlord");
     expect(depthInfo(3).mutators.length).toBe(1);
     expect(depthInfo(6).mutators.length).toBe(2);
-    expect(depthInfo(12).mutators.length).toBe(3);
-    expect(depthInfo(40).mutators.length).toBe(4);
+    for (let d = 2; d < 80; d++) {
+      const n = depthInfo(d).mutators.length;
+      expect(n).toBeGreaterThan(0);
+      expect(n).toBeLessThanOrEqual(
+        d <= 4 ? 1 : d <= 8 ? 2 : d <= 15 ? 3 : d <= 30 ? 4 : 5,
+      );
+    }
     for (let d = 1; d < 60; d++) {
       const i = depthInfo(d);
       expect(new Set(i.mutators).size).toBe(i.mutators.length);
@@ -136,7 +141,8 @@ describe("parties", () => {
     expect(isChampionNight(13)).toBe(false);
     expect(championFor(r, 15)).toBe("archmage");
     expect(championFor(r, 20)).toBe("warlord");
-    expect(championFor(r, 25)).toBe("paladin");
+    expect(championFor(r, 25)).toBe("thane");
+    expect(championFor(r, 40)).toBe("paladin");
     expect(partyFor(r, 15)[0].cls).toBe("archmage");
   });
   it("never exceed ten heroes", () => {
