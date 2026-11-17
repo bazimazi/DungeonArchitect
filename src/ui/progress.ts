@@ -27,6 +27,7 @@ import {
   SCHOOL_TIERS,
 } from "../game/schools";
 import { fmt, h, icon, pieceArt } from "./dom";
+import { RARITIES, heirloomName } from "../game/meta";
 
 const bar = (frac: number) =>
   h(
@@ -230,6 +231,29 @@ export function progressList(pr: Progress, archName?: string) {
     items.push(
       row("book", `Bestiary: ${HEROES[cls].name}`, BESTIARY_NAMES[mark - 1]),
     );
+  if (pr.souls || pr.infamy)
+    items.push(
+      row(
+        "dread",
+        `+${fmt(pr.souls)} souls`,
+        pr.infamy ? `· +${fmt(pr.infamy)} infamy` : "",
+      ),
+    );
+  if (pr.infamyLevel)
+    items.push(
+      row("crown", `Infamy level ${pr.infamyLevel}`, "+1 talent point"),
+    );
+  if (pr.heirloom) {
+    const it = pr.heirloom;
+    const r = row(
+      "relic",
+      `Heirloom: ${heirloomName(it)}`,
+      `${RARITIES[it.rarity].name} · item level ${it.ilvl}${pr.salvaged ? ` · vault full, salvaged for ${pr.salvaged} souls` : ""}`,
+    );
+    r.classList.add("heirloom-row");
+    r.style.setProperty("--rc", RARITIES[it.rarity].color);
+    items.push(r);
+  }
   if (pr.archLevel)
     items.push(
       row(

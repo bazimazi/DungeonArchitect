@@ -390,3 +390,61 @@ test("browser back closes screens instead of leaving the game", async ({
   expect(page.url()).toBe(url);
   expect(errors).toEqual([]);
 });
+
+test("the Sanctum spends souls and empowers the next descent", async ({
+  page,
+}) => {
+  const errors = await fresh(page);
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "da.profile.v1",
+      JSON.stringify({
+        v: 2,
+        renown: 60,
+        runs: 3,
+        wins: 1,
+        maxDepth: 2,
+        bestDepth: 1,
+        tutorial: 99,
+        souls: 500,
+        infamyXp: 400,
+        wellAt: Date.now() - 3 * 3600_000,
+      }),
+    ),
+  );
+  await page.reload();
+  await expect(page.locator(".well-btn.ready")).toBeVisible();
+  await page.locator(".well-btn").click();
+  await page.locator(".sanctum-btn").click();
+  await expect(page.locator(".sanctum")).toBeVisible();
+  const souls = () =>
+    page.evaluate(
+      () =>
+        (window as unknown as { game: { profile: { souls: number } } }).game
+          .profile.souls,
+    );
+  const before = await souls();
+  await page.locator(".heart-card .btn.primary").first().click();
+  expect(await souls()).toBeLessThan(before);
+  for (const tab of ["forge", "arts", "vault", "bonuses"]) {
+    await page.locator(`[data-tab="${tab}"]`).click();
+    await expect(page.locator(`[data-tab="${tab}"]`)).toHaveClass(/on/);
+  }
+  await page.locator('[data-tab="arts"]').click();
+  await page.locator(".br-engineer .node-main").first().click();
+  await expect(page.locator(".br-engineer .node.on")).toHaveCount(1);
+  await page.locator(".sanctum [aria-label=Close]").click();
+  await page.getByText("New Descent").click();
+  await page.getByText("Descend", { exact: true }).click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  const trap = await page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          game: { run: { meta?: { s: { trapDmg?: number } } } };
+        }
+      ).game.run.meta?.s.trapDmg ?? 0,
+  );
+  expect(trap).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});

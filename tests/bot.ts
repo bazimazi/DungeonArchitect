@@ -67,6 +67,8 @@ export interface BotOpts {
   /** Override the depth twists (diagnostics). */
   mutators?: RunState["mutators"];
   boss?: RunState["boss"];
+  /** Sanctum bonuses (rules v6). */
+  meta?: RunState["meta"];
 }
 export interface BotResult {
   won: boolean;
@@ -457,6 +459,8 @@ export function playRun(o: BotOpts): BotResult {
     depth: o.depth,
     powers: o.powers ?? ["rockfall", "shriek", "chill"],
     omens: o.omens,
+    meta: o.meta,
+    pool: o.pool ?? ALL_PIECES,
   });
   if (o.mutators) run.mutators = o.mutators;
   if (o.boss) run.boss = o.boss;

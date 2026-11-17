@@ -2383,7 +2383,14 @@ export type StatId =
   | "bestiary"
   | "affixKills"
   | "contracts"
-  | "schoolKills";
+  | "schoolKills"
+  | "souls"
+  | "heart"
+  | "forge"
+  | "infamy"
+  | "heirlooms"
+  | "legendaries"
+  | "wells";
 export interface FeatDef {
   id: string;
   name: string;
@@ -2867,5 +2874,174 @@ export const FEATS: FeatDef[] = [
     name: "Doom Incarnate",
     text: "Win a descent at heat 26 or more.",
     renown: 120,
+  },
+  // Rules v6: the Sanctum.
+  {
+    id: "souls1k",
+    name: "Soul Collector",
+    text: "Earn 1,000 souls.",
+    renown: 5,
+    stat: "souls",
+    goal: 1000,
+  },
+  {
+    id: "souls25k",
+    name: "Soul Hoarder",
+    text: "Earn 25,000 souls.",
+    renown: 15,
+    stat: "souls",
+    goal: 25000,
+  },
+  {
+    id: "souls250k",
+    name: "Soul Tyrant",
+    text: "Earn 250,000 souls.",
+    renown: 40,
+    stat: "souls",
+    goal: 250000,
+  },
+  {
+    id: "heart25",
+    name: "Heartbeat",
+    text: "Raise the Dungeon Heart 25 times.",
+    renown: 5,
+    stat: "heart",
+    goal: 25,
+  },
+  {
+    id: "heart150",
+    name: "Heart of Darkness",
+    text: "Raise the Dungeon Heart 150 times.",
+    renown: 20,
+    stat: "heart",
+    goal: 150,
+  },
+  {
+    id: "heart400",
+    name: "The Beating Deep",
+    text: "Raise the Dungeon Heart 400 times.",
+    renown: 50,
+    stat: "heart",
+    goal: 400,
+  },
+  {
+    id: "forge50",
+    name: "Smith",
+    text: "Spend 50 levels at the Forge.",
+    renown: 5,
+    stat: "forge",
+    goal: 50,
+  },
+  {
+    id: "forge300",
+    name: "Mythsmith",
+    text: "Spend 300 levels at the Forge.",
+    renown: 20,
+    stat: "forge",
+    goal: 300,
+  },
+  {
+    id: "forge1000",
+    name: "Forge Eternal",
+    text: "Spend 1,000 levels at the Forge.",
+    renown: 50,
+    stat: "forge",
+    goal: 1000,
+  },
+  {
+    id: "infamy10",
+    name: "Infamous",
+    text: "Reach infamy level 10.",
+    renown: 5,
+    stat: "infamy",
+    goal: 10,
+  },
+  {
+    id: "infamy30",
+    name: "Notorious",
+    text: "Reach infamy level 30.",
+    renown: 15,
+    stat: "infamy",
+    goal: 30,
+  },
+  {
+    id: "infamy75",
+    name: "Name of Dread",
+    text: "Reach infamy level 75.",
+    renown: 40,
+    stat: "infamy",
+    goal: 75,
+  },
+  {
+    id: "infamy150",
+    name: "Whispered in Every Tavern",
+    text: "Reach infamy level 150.",
+    renown: 80,
+    stat: "infamy",
+    goal: 150,
+  },
+  {
+    id: "heirlooms10",
+    name: "Collector",
+    text: "Find 10 heirlooms.",
+    renown: 5,
+    stat: "heirlooms",
+    goal: 10,
+  },
+  {
+    id: "heirlooms100",
+    name: "Curator of the Deep",
+    text: "Find 100 heirlooms.",
+    renown: 20,
+    stat: "heirlooms",
+    goal: 100,
+  },
+  {
+    id: "legendary",
+    name: "Stuff of Legend",
+    text: "Find a legendary heirloom.",
+    renown: 10,
+    stat: "legendaries",
+    goal: 1,
+  },
+  {
+    id: "legendary10",
+    name: "Hall of Legends",
+    text: "Find 10 legendary heirlooms.",
+    renown: 30,
+    stat: "legendaries",
+    goal: 10,
+  },
+  {
+    id: "wells10",
+    name: "Well Keeper",
+    text: "Draw from the Soul Well 10 times.",
+    renown: 5,
+    stat: "wells",
+    goal: 10,
+  },
+  {
+    id: "purist",
+    name: "Purist",
+    text: "Conquer depth 8 or deeper with the Sanctum sealed.",
+    renown: 25,
+  },
+  {
+    id: "keystone",
+    name: "Keystone",
+    text: "Learn a keystone talent.",
+    renown: 5,
+  },
+  {
+    id: "forged30",
+    name: "Masterpiece",
+    text: "Forge a piece to level 30.",
+    renown: 10,
+  },
+  {
+    id: "temper10",
+    name: "Perfect Temper",
+    text: "Temper a legendary heirloom to +10.",
+    renown: 20,
   },
 ];

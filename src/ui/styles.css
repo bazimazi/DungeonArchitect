@@ -3435,3 +3435,563 @@ body.paused .hud[data-mode="raid"]::after {
     max-width: min(760px, calc(100vw - 300px));
   }
 }
+
+/* ---------------- Rules v6: the Sanctum ---------------- */
+.sanctum {
+  --soul: #b98cff;
+  width: min(820px, 100%);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.sanctum-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 2px 2px 8px;
+  touch-action: pan-y;
+}
+.sanctum .intro {
+  font-size: 12.5px;
+  margin: 8px 0 10px;
+}
+.sanctum-purse {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 14px;
+  align-items: center;
+  margin: 10px 0 8px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #120d18;
+  border: 1.5px solid #33284a;
+}
+.purse-souls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.purse-souls .ic {
+  width: 26px;
+  height: 26px;
+}
+.purse-souls b {
+  font: 900 22px var(--display);
+  color: var(--soul);
+}
+.purse-souls small,
+.purse-infamy small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.inf-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.purse-infamy .bar {
+  margin: 4px 0;
+}
+.pts.on {
+  color: var(--gold);
+  animation: soul-pulse 1.4s ease-in-out infinite;
+}
+@keyframes soul-pulse {
+  50% {
+    opacity: 0.55;
+  }
+}
+.tabs {
+  display: flex;
+  gap: 4px;
+  overflow-x: auto;
+  padding-bottom: 2px;
+  border-bottom: 1.5px solid #33284a;
+}
+.tab {
+  position: relative;
+  flex: 1 0 auto;
+  padding: 9px 12px;
+  border-radius: 10px 10px 0 0;
+  background: transparent;
+  color: var(--muted);
+  font: 800 13px var(--ui);
+  letter-spacing: 0.04em;
+}
+.tab.on {
+  color: var(--gold);
+  background: #1d1527;
+  box-shadow: inset 0 -2px 0 var(--gold);
+}
+.tab.dot::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--gold);
+}
+.soul-cost {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 4px;
+}
+.soul-cost .ic {
+  width: 15px;
+  height: 15px;
+}
+/* Heart */
+.heart-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+.heart-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #1a1322;
+  border: 1.5px solid #3a2b52;
+}
+.heart-card.locked {
+  opacity: 0.45;
+}
+.heart-card.maxed {
+  border-color: var(--gold-deep);
+}
+.hc-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.hc-head b {
+  font: 900 15px var(--display);
+  color: var(--text);
+}
+.hc-head small {
+  color: var(--gold);
+}
+.hc-effect {
+  color: var(--soul, #b98cff);
+  font-size: 13px;
+}
+.heart-card .flavor {
+  margin: 2px 0 4px;
+  font-size: 11.5px;
+  font-style: italic;
+  color: var(--dim);
+}
+.hc-buy {
+  display: flex;
+  gap: 6px;
+  margin-top: auto;
+}
+.hc-buy .btn:first-child {
+  flex: 1;
+}
+/* Forge */
+.forge-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #1a1322;
+  border: 1.5px solid #33284a;
+}
+.forge-card.alert {
+  border-color: var(--gold);
+}
+.forge-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ft-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+}
+.ft {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  padding: 5px 7px;
+  border-radius: 8px;
+  background: #120d18;
+  border: 1.5px solid #2c2240;
+  font-size: 12px;
+}
+.ft small {
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.ft.on {
+  border-color: var(--sc, var(--gold));
+  background: color-mix(in srgb, var(--sc, var(--gold)) 16%, #120d18);
+}
+.ft.on small {
+  color: var(--muted);
+}
+.ft-row.locked .ft {
+  opacity: 0.4;
+  cursor: default;
+}
+.cap-note {
+  font-size: 11px;
+}
+/* Dark Arts */
+.arts-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+.arts-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.arts-tree {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.arts-branch {
+  --br: #c79bff;
+  padding: 8px;
+  border-radius: 14px;
+  background: #140f1b;
+  border: 1.5px solid color-mix(in srgb, var(--br) 35%, #2c2240);
+}
+.br-engineer {
+  --br: #7ef0ff;
+}
+.br-warlord {
+  --br: #ff7a6a;
+}
+.br-overseer {
+  --br: #ffd166;
+}
+.arts-head h3 {
+  margin: 0;
+  color: var(--br);
+}
+.arts-head small {
+  display: block;
+  color: var(--dim);
+  font-size: 11px;
+  margin-bottom: 6px;
+}
+.arts-row {
+  margin-top: 6px;
+}
+.arts-row.locked .node {
+  opacity: 0.4;
+}
+.row-need {
+  display: block;
+  color: var(--dim);
+  font-size: 10.5px;
+  margin-bottom: 3px;
+}
+.arts-nodes {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 5px;
+}
+.node {
+  position: relative;
+  display: flex;
+}
+.node-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: 1px;
+  padding: 6px 7px;
+  border-radius: 9px;
+  background: #1d1527;
+  border: 1.5px solid #33284a;
+  font-size: 12px;
+}
+.node-main:disabled {
+  cursor: default;
+}
+.node.on .node-main {
+  border-color: var(--br);
+  background: color-mix(in srgb, var(--br) 12%, #1d1527);
+}
+.node.keystone .node-main {
+  border-style: double;
+  border-width: 3px;
+}
+.node.endless .node-main b::after {
+  content: " \221E";
+  color: var(--br);
+}
+.node .rank {
+  color: var(--br);
+  font-size: 11px;
+}
+.node-text {
+  color: var(--dim);
+  font-size: 10.5px;
+  line-height: 1.2;
+}
+.node-val {
+  color: var(--muted);
+  font-size: 10.5px;
+}
+.node-minus {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: #0d0912;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+}
+.node-minus:disabled {
+  opacity: 0.3;
+}
+/* Heirlooms */
+.slots,
+.vault {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.slot {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  border: 1.5px dashed #4b3c60;
+  color: var(--dim);
+  font-size: 10.5px;
+  text-align: center;
+}
+.slot.locked {
+  opacity: 0.45;
+}
+.heirloom {
+  --rc: #b9b2a4;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  background: radial-gradient(
+    circle at 50% 40%,
+    color-mix(in srgb, var(--rc) 28%, #1a1322),
+    #120d18 75%
+  );
+  border: 2px solid color-mix(in srgb, var(--rc) 70%, #1a1322);
+}
+.heirloom.small {
+  width: 52px;
+  height: 52px;
+}
+.heirloom .ic {
+  width: 28px;
+  height: 28px;
+  color: var(--rc);
+}
+.heirloom.picked {
+  box-shadow: 0 0 0 2px var(--text);
+}
+.heirloom.worn::before {
+  content: "E";
+  position: absolute;
+  top: 2px;
+  left: 4px;
+  font-size: 10px;
+  color: var(--gold);
+}
+.heirloom .ilvl,
+.heirloom .temper,
+.heirloom .lock {
+  position: absolute;
+  font-size: 10px;
+  line-height: 1;
+}
+.heirloom .ilvl {
+  bottom: 3px;
+  right: 5px;
+  color: var(--muted);
+}
+.heirloom .temper {
+  bottom: 3px;
+  left: 5px;
+  color: var(--good);
+}
+.heirloom .lock {
+  top: 3px;
+  right: 3px;
+}
+.heirloom.r4 {
+  animation: legend-glow 2.4s ease-in-out infinite;
+}
+@keyframes legend-glow {
+  50% {
+    box-shadow: 0 0 14px color-mix(in srgb, var(--rc) 60%, transparent);
+  }
+}
+.heirloom-detail {
+  margin: 10px 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: #120d18;
+  border: 1.5px solid color-mix(in srgb, var(--rc) 60%, #33284a);
+}
+.hd-head b {
+  display: block;
+  font: 900 16px var(--display);
+  color: var(--rc);
+}
+.hd-head small {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+.hd-affixes {
+  margin: 8px 0;
+  padding-left: 18px;
+  font-size: 13px;
+}
+.hd-affixes .implicit {
+  color: var(--text);
+}
+.hd-affixes li:not(.implicit) {
+  color: #9fc4ff;
+}
+.hd-affixes .legend {
+  color: #ff9a55;
+}
+.hd-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.vault-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.bonus-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.bonus-list li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 2px;
+  border-bottom: 1px solid #2a2038;
+  font-size: 13px;
+}
+.bonus-list li b {
+  color: var(--soul, #b98cff);
+  text-align: right;
+}
+/* Title and setup */
+.sanctum-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 10px;
+}
+.sanctum-row > .btn:only-child {
+  grid-column: 1 / -1;
+}
+.sanctum-btn > span {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sanctum-btn .ic {
+  width: 26px;
+  height: 26px;
+}
+.sr-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  line-height: 1.15;
+}
+.sr-text b {
+  font: 900 16px var(--display);
+}
+.sr-text small {
+  font: 700 12px var(--ui);
+  opacity: 0.75;
+}
+.sanctum-btn {
+  position: relative;
+  justify-content: flex-start;
+  border-color: #6a4aa0;
+  background: linear-gradient(#2b1e40, #1a1128);
+}
+.sanctum-btn.alert::after {
+  content: "";
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 8px var(--gold);
+}
+.well-btn.ready {
+  border-color: #b98cff;
+  box-shadow: 0 0 12px rgba(185, 140, 255, 0.35);
+}
+.sanctum-pick .kit small {
+  display: block;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.25;
+}
+.heirloom-row b {
+  color: var(--rc);
+}
+.gameover .souls {
+  color: #b98cff;
+}
+@media (max-width: 640px) {
+  .arts-tree {
+    grid-template-columns: 1fr;
+  }
+  .sanctum-purse {
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+}
+.sanctum-btn.fresh {
+  animation: sanctum-call 1.8s ease-in-out infinite;
+}
+@keyframes sanctum-call {
+  50% {
+    box-shadow:
+      0 0 0 2px #b98cff,
+      0 0 22px rgba(185, 140, 255, 0.55);
+  }
+}

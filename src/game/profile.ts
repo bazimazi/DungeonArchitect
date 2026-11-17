@@ -39,6 +39,22 @@ import {
 import { SCHOOL_IDS, sourcePiece, type SchoolId } from "./schools";
 import type { RaidResult } from "./sim";
 import type { HeroClass } from "./defs";
+import {
+  SOULS,
+  defaultMeta,
+  forgeLevels,
+  heartLevels,
+  heirloomDrop,
+  infamyLevel,
+  keepHeirloom,
+  metaBonus,
+  nightInfamy,
+  nightSouls,
+  winInfamy,
+  winSouls,
+  type Heirloom,
+  type MetaProfile,
+} from "./meta";
 
 export interface Settings {
   sfx: number;
@@ -48,7 +64,7 @@ export interface Settings {
   reduceMotion: boolean;
   speed: number;
 }
-export interface Profile {
+export interface Profile extends MetaProfile {
   v: 2;
   renown: number;
   runs: number;
@@ -177,6 +193,13 @@ export function defaultProfile(): Profile {
       affixKills: 0,
       contracts: 0,
       schoolKills: 0,
+      souls: 0,
+      heart: 0,
+      forge: 0,
+      infamy: 1,
+      heirlooms: 0,
+      legendaries: 0,
+      wells: 0,
     },
     feats: [],
     archWins: [],
@@ -201,6 +224,7 @@ export function defaultProfile(): Profile {
     archXp: {},
     kits: {},
     schools4: [],
+    ...defaultMeta(),
   };
 }
 
@@ -255,7 +279,33 @@ export function migrateProfile(raw: unknown): Profile {
     kits: obj(p.kits),
     schools4: Array.isArray(p.schools4) ? p.schools4 : [],
     bestHeat: typeof p.bestHeat === "number" ? p.bestHeat : p.wins ? 0 : -1,
+    // Rules v6: the Sanctum.
+    souls: num(p.souls),
+    infamyXp: num(p.infamyXp),
+    heart: obj(p.heart),
+    forge: obj(p.forge),
+    ptalents: obj(p.ptalents),
+    talents: obj(p.talents),
+    heirlooms: Array.isArray(p.heirlooms)
+      ? p.heirlooms.filter((x) => x && typeof x === "object")
+      : [],
+    equipped: Array.isArray(p.equipped) ? p.equipped : [],
+    nextItem: Math.max(1, num(p.nextItem)),
+    wellAt: num(p.wellAt),
   };
+  out.nextItem = Math.max(
+    out.nextItem,
+    1 + out.heirlooms.reduce((a, x) => Math.max(a, x.id ?? 0), 0),
+  );
+  out.equipped = out.equipped.filter((id) =>
+    out.heirlooms.some((x) => x.id === id),
+  );
+  // Veterans arriving from before the Sanctum get a head start that
+  // reflects what they had already achieved.
+  if (p.infamyXp === undefined && (p.renown ?? 0) > 0) {
+    out.infamyXp = Math.round((p.renown ?? 0) * 8);
+    out.souls = Math.round((p.renown ?? 0) * 3);
+  }
   // Trial stars are derived from the per-trial record.
   out.stats.trialStars = Object.values(out.trials).reduce(
     (a, v) => a + (Number(v) || 0),
@@ -286,7 +336,18 @@ export function migrateProfile(raw: unknown): Profile {
   out.stats.crowns = totalCrowns(out);
   out.stats.aspects = unlockedAspects(out).length;
   out.stats.bestiary = totalMarks(out);
+  if (out.bestDepth > 0 && !out.wellAt) out.wellAt = Date.now();
+  syncMetaStats(out);
   return out;
+}
+const num = (v: unknown) =>
+  typeof v === "number" && Number.isFinite(v) ? v : 0;
+
+/** Counters behind the Sanctum feats. */
+export function syncMetaStats(p: Profile) {
+  p.stats.heart = heartLevels(p);
+  p.stats.forge = forgeLevels(p);
+  p.stats.infamy = infamyLevel(p.infamyXp).level;
 }
 
 // ---------- Rules v5 progression ----------
@@ -330,6 +391,16 @@ export interface Progress {
   boardDone: boolean;
   /** New architect level, if one was reached. */
   archLevel: number | null;
+  /** Souls earned (rules v6). */
+  souls: number;
+  /** Infamy experience earned. */
+  infamy: number;
+  /** New infamy level, if one was reached. */
+  infamyLevel: number | null;
+  /** Heirloom found tonight. */
+  heirloom: Heirloom | null;
+  /** Souls from an heirloom salvaged because the vault was full. */
+  salvaged: number;
 }
 export const noProgress = (): Progress => ({
   renown: 0,
@@ -339,7 +410,29 @@ export const noProgress = (): Progress => ({
   bounties: [],
   boardDone: false,
   archLevel: null,
+  souls: 0,
+  infamy: 0,
+  infamyLevel: null,
+  heirloom: null,
+  salvaged: 0,
 });
+
+/** Souls go into the purse and the lifetime counter. */
+export function addSouls(p: Profile, n: number) {
+  if (n <= 0) return 0;
+  p.souls += n;
+  p.stats.souls += n;
+  return n;
+}
+function addInfamy(p: Profile, xp: number, out: Progress) {
+  if (xp <= 0) return;
+  const before = infamyLevel(p.infamyXp).level;
+  p.infamyXp += xp;
+  out.infamy += xp;
+  const after = infamyLevel(p.infamyXp).level;
+  if (after > before) out.infamyLevel = after;
+  p.stats.infamy = after;
+}
 
 /** Architect XP: a level pays renown. */
 function addXp(p: Profile, a: ArchitectId, xp: number, out: Progress) {
@@ -358,7 +451,10 @@ function addXp(p: Profile, a: ArchitectId, xp: number, out: Progress) {
  */
 export function recordNight(
   p: Profile,
-  run: Pick<RunState, "architect">,
+  run: Pick<RunState, "architect"> &
+    Partial<
+      Pick<RunState, "depth" | "omens" | "seed" | "night" | "daily" | "endless">
+    >,
   r: RaidResult,
   stars: number,
   survived: boolean,
@@ -413,11 +509,50 @@ export function recordNight(
       out.renown += b.renown;
       out.bounties.push(b);
       p.stats.contracts++;
+      out.souls += addSouls(p, SOULS.bounty);
     }
   });
   if (out.bounties.length && board.paid.every(Boolean)) {
     out.boardDone = true;
     out.renown += BOARD_BONUS;
+    out.souls += addSouls(p, SOULS.board);
+  }
+  // Rules v6: souls, infamy and heirlooms. Earning bonuses always apply,
+  // even in a pure descent (they never touch the raid).
+  if (run.depth !== undefined && run.night !== undefined) {
+    const bonus = metaBonus(p).s;
+    const ctx = { depth: run.depth, omens: run.omens, night: run.night };
+    const night = { killed: r.killed, stars };
+    const won = survived && !run.endless && run.night === NIGHTS;
+    out.souls += addSouls(p, nightSouls(ctx, night, bonus.souls ?? 0));
+    let xp = nightInfamy(ctx, night, bonus.infamy ?? 0);
+    if (won) {
+      out.souls += addSouls(p, winSouls(ctx, bonus.souls ?? 0));
+      xp += winInfamy(ctx, bonus.infamy ?? 0);
+    }
+    addInfamy(p, xp, out);
+    // Heirlooms turn up in campaign descents (not dailies).
+    if (!run.daily && run.seed !== undefined && survived) {
+      const it = heirloomDrop(
+        {
+          seed: run.seed,
+          depth: run.depth,
+          night: run.night,
+          stars,
+          won,
+          luck: bonus.luck ?? 0,
+        },
+        p.nextItem,
+      );
+      if (it) {
+        p.nextItem++;
+        p.stats.heirlooms++;
+        if (it.rarity >= 4) p.stats.legendaries++;
+        out.heirloom = it;
+        out.salvaged = keepHeirloom(p, it);
+        if (out.salvaged) p.stats.souls += out.salvaged;
+      }
+    }
   }
   if (survived) addXp(p, run.architect, nightXp(stars), out);
   p.stats.affixKills += r.affixKills ?? 0;
@@ -457,6 +592,8 @@ export function recordDepthWin(p: Profile, run: RunState) {
   rec.bestStars = Math.max(rec.bestStars, stars);
   rec.bestHeat = Math.max(rec.bestHeat, heat);
   p.depths[d] = rec;
+  // The Soul Well starts filling after the first conquest.
+  if (!p.wellAt) p.wellAt = Date.now();
   let renown = 0;
   for (const c of fresh) renown += c.renown;
   p.renown += renown;
@@ -533,6 +670,7 @@ export function award(p: Profile, id: string): FeatDef | null {
   if (!f) return null;
   p.feats.push(id);
   p.renown += f.renown;
+  addSouls(p, f.renown * SOULS.feat);
   return f;
 }
 /** Award every counter feat whose goal has been reached. */

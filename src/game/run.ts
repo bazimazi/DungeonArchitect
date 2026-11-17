@@ -53,6 +53,7 @@ import type { PartyMember, RaidMods, RaidResult } from "./sim";
 import { AFFIXES, AFFIX_IDS, type AffixId } from "./schools";
 import { ALT_KITS } from "./progression";
 import type { Encounter } from "./encounters";
+import { ms, pm, type RunMeta } from "./meta";
 
 export type Card =
   | { type: "piece"; id: PieceId }
@@ -143,6 +144,12 @@ export interface RunState {
   kit?: number;
   /** The architect's signature relic can be drafted. */
   signature?: boolean;
+  /** Sanctum bonuses snapshotted when the descent began (rules v6). */
+  meta?: RunMeta;
+  /** Started with the Sanctum sealed. */
+  pure?: boolean;
+  /** Souls earned so far this run. */
+  souls?: number;
 }
 
 export const HERO_ARRIVAL: Record<HeroClass, number> = {
@@ -354,7 +361,13 @@ export function newRun(opts: {
   aspects?: PieceId[];
   kit?: number;
   signature?: boolean;
+  /** Sanctum bonuses (campaign descents only). */
+  meta?: RunMeta | null;
+  /** Pieces the Legion keystone may add (defaults to the base pool). */
+  pool?: PieceId[];
+  pure?: boolean;
 }): RunState {
+  const meta = opts.meta ?? undefined;
   const omens = [...new Set(opts.omens ?? [])];
   const base = ARCHITECTS.find((a) => a.id === opts.architect) ?? ARCHITECTS[0];
   const kit = opts.kit === 1 ? 1 : 0;
@@ -373,7 +386,9 @@ export function newRun(opts: {
   gold += heat.startBonus;
   if (omens.includes("poverty")) gold -= 40;
   if (mutators.includes("stockpile")) gold += 60;
+  gold += Math.round(ms(meta, "startGold"));
   const hoard =
+    Math.round(ms(meta, "hoard")) +
     12 -
     heat.hoardPenalty +
     (mutators.includes("ancient") ? 4 : 0) +
@@ -384,6 +399,19 @@ export function newRun(opts: {
     const rng = new Rng(opts.seed ^ 0x5bd1e995);
     const extra = BASE_POOL.filter((p) => !owned.includes(p));
     owned.push(rng.pick(extra));
+  }
+  // Legion: an extra monster blueprint, fixed by the seed.
+  if (meta?.keys.includes("legion")) {
+    const rng = new Rng(opts.seed ^ 0x1e910a);
+    const extra = [...new Set([...BASE_POOL, ...(opts.pool ?? [])])].filter(
+      (p) => PIECES[p].kind === "monster" && !owned.includes(p),
+    );
+    if (extra.length) owned.push(rng.pick(extra));
+  }
+  const tiers: Partial<Record<PieceId, number>> = {};
+  for (const p of owned) {
+    const t = pm(meta, p)?.tier ?? 0;
+    if (t > 0 && p !== "lure") tiers[p] = Math.min(TIER_MAX, 1 + t);
   }
   const run: RunState = {
     v: 2,
@@ -401,7 +429,7 @@ export function newRun(opts: {
     hoardMax: hoard,
     layout,
     owned,
-    tiers: {},
+    tiers,
     relics: arch.id === "lich" ? ["restless"] : [],
     powers: omens.includes("silence") ? [] : opts.powers,
     draft: null,
@@ -417,6 +445,8 @@ export function newRun(opts: {
   if (opts.aspects?.length) run.aspects = [...new Set(opts.aspects)];
   if (kit) run.kit = kit;
   if (opts.signature) run.signature = true;
+  if (meta) run.meta = meta;
+  if (opts.pure) run.pure = true;
   // A first trap on the starter tunnel so night one teaches itself.
   const spot = firstTunnelTile(layout, 4);
   if (spot) {
@@ -472,9 +502,14 @@ function firstTunnelTile(l: Layout, steps: number) {
   return t;
 }
 
-export function pieceCost(run: Pick<RunState, "architect">, id: PieceId) {
+export function pieceCost(
+  run: Pick<RunState, "architect"> & Partial<Pick<RunState, "meta">>,
+  id: PieceId,
+) {
   const def = PIECES[id];
   let c = def.cost;
+  const off = pm(run.meta, id)?.cost ?? 0;
+  if (off) c = Math.max(1, Math.round(c * (1 - off)));
   if (run.architect === "trickster" && def.kind === "trap")
     c = Math.round(c * 0.8);
   if (run.architect === "beastmaster" && def.kind === "monster")
@@ -499,7 +534,7 @@ export function raidMods(
     RunState,
     "night" | "depth" | "mutators" | "architect" | "relics" | "tiers"
   > &
-    Partial<Pick<RunState, "omens" | "blight" | "aspects">>,
+    Partial<Pick<RunState, "omens" | "blight" | "aspects" | "meta">>,
 ): RaidMods {
   const n = run.night;
   const heat = heatFor(run.depth, n);
@@ -530,6 +565,7 @@ export function raidMods(
     omens: run.omens ?? [],
     schools: !omen(run, "discord"),
     aspects: run.aspects ?? [],
+    ...(run.meta ? { meta: run.meta } : {}),
   };
 }
 
@@ -731,7 +767,7 @@ export function starsFor(r: RaidResult, stolenThisNight: number) {
 
 export function dawnIncome(
   run: Pick<RunState, "night" | "relics" | "mutators"> &
-    Partial<Pick<RunState, "omens">>,
+    Partial<Pick<RunState, "omens" | "meta">>,
   stars: number,
 ) {
   let base =
@@ -740,6 +776,8 @@ export function dawnIncome(
     stars * TUNE.tributePerStar;
   if (has(run, "famine")) base = Math.round(base * 0.75);
   if (omen(run, "poverty")) base = Math.round(base * 0.8);
+  const tithe = ms(run.meta, "tribute");
+  if (tithe) base = Math.round(base * (1 + tithe));
   return base + (run.relics.includes("goldRush") ? 10 : 0);
 }
 /** Royal Treasury: interest on the gold saved going into the night. */
@@ -750,10 +788,13 @@ export function interestFor(run: Pick<RunState, "relics">, saved: number) {
 
 const RARITY_WEIGHT = { common: 4, rare: 2, legendary: 1 } as const;
 export function rerollCost(
-  run: Pick<RunState, "rerolls"> & Partial<Pick<RunState, "relics">>,
+  run: Pick<RunState, "rerolls"> & Partial<Pick<RunState, "relics" | "meta">>,
 ) {
   if (run.relics?.includes("keys")) return 0;
-  return 10 + run.rerolls * 10;
+  return Math.max(
+    0,
+    10 + run.rerolls * 10 - Math.round(ms(run.meta, "reroll")),
+  );
 }
 
 export function draftFor(
@@ -801,7 +842,9 @@ export function draftFor(
     else if (tierable.length) add({ type: "tier", id: rng.pick(tierable) });
   }
   const size =
-    (omen(run, "meager") ? 2 : 3) + (run.relics.includes("loadedDice") ? 1 : 0);
+    (omen(run, "meager") ? 2 : 3) +
+    (run.relics.includes("loadedDice") ? 1 : 0) +
+    Math.round(ms(run.meta, "draft"));
   for (let i = 0; i < 8 && cards.length < size; i++) {
     const roll = rng.next();
     if (roll < 0.6 && relics.length) add({ type: "relic", id: pickRelic() });
@@ -814,6 +857,13 @@ export function draftFor(
 export function applyCard(run: RunState, c: Card) {
   if (c.type === "piece") {
     if (!run.owned.includes(c.id)) run.owned.push(c.id);
+    // Forge talent "Heirloom": the piece joins a tier higher.
+    const t = pm(run.meta, c.id)?.tier ?? 0;
+    if (t > 0 && c.id !== "lure")
+      run.tiers[c.id] = Math.min(
+        TIER_MAX,
+        Math.max(run.tiers[c.id] ?? 1, 1 + t),
+      );
   } else if (c.type === "tier")
     run.tiers[c.id] = Math.min(TIER_MAX, (run.tiers[c.id] ?? 1) + 1);
   else {
@@ -903,7 +953,14 @@ export function capacityFor(
     Partial<
       Pick<
         RunState,
-        "mutators" | "omens" | "cap" | "locked" | "trial" | "extraCap" | "depth"
+        | "mutators"
+        | "omens"
+        | "cap"
+        | "locked"
+        | "trial"
+        | "extraCap"
+        | "depth"
+        | "meta"
       >
     >,
 ) {
@@ -918,7 +975,8 @@ export function capacityFor(
     (run.relics.includes("sprawl") ? 4 : 0) +
     (run.mutators?.includes("fortified") ? 3 : 0) +
     (run.extraCap ?? 0) +
-    deepCapacity(run.depth ?? 1) -
+    deepCapacity(run.depth ?? 1) +
+    Math.round(ms(run.meta, "capacity")) -
     (omen(run, "cramped") ? 3 : 0)
   );
 }
@@ -942,7 +1000,7 @@ export function sellValue(run: RunState, objId: number) {
   const c = pieceCost(run, o.kind);
   return run.fresh.includes(objId) || run.relics.includes("miser")
     ? c
-    : Math.floor(c * 0.75);
+    : Math.min(c, Math.floor(c * (0.75 + ms(run.meta, "refund"))));
 }
 export function sell(run: RunState, objId: number) {
   const v = sellValue(run, objId);
@@ -977,7 +1035,7 @@ export const DRAFT_TIER_MAX = 3;
 export const TIER_MAX = 5;
 export function reinforceCost(
   run: Pick<RunState, "architect" | "tiers"> &
-    Partial<Pick<RunState, "relics">>,
+    Partial<Pick<RunState, "relics" | "meta">>,
   id: PieceId,
 ) {
   // Bait chests have no power to raise.
@@ -985,7 +1043,12 @@ export function reinforceCost(
   const tier = run.tiers[id] ?? 1;
   if (tier >= TIER_MAX) return null;
   const square = run.relics?.includes("masterTools") ? 0.7 : 1;
-  return Math.round(pieceCost(run, id) * TUNE.reinforce * tier * square);
+  // Sanctum discounts (global and per piece) stack, but never below 30%.
+  const off = Math.max(
+    0.3,
+    (1 - ms(run.meta, "reinforce")) * (1 - (pm(run.meta, id)?.reinforce ?? 0)),
+  );
+  return Math.round(pieceCost(run, id) * TUNE.reinforce * tier * square * off);
 }
 export function reinforce(run: RunState, id: PieceId) {
   const c = reinforceCost(run, id);

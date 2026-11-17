@@ -4,6 +4,7 @@
  * raids on every device. Presentation reads state and drains `events`.
  */
 import { Rng } from "../engine/math";
+import type { RunMeta } from "./meta";
 import {
   DX,
   DY,
@@ -33,6 +34,7 @@ import {
   AFFIXES,
   PIECE_SCHOOL,
   schoolLevels,
+  sourcePiece,
   sourceSchool,
   type AffixId,
   type SchoolId,
@@ -75,6 +77,8 @@ export interface RaidMods {
   schools?: boolean;
   /** Pieces whose mastered aspect is in play. */
   aspects?: PieceId[];
+  /** Sanctum bonuses (rules v6; campaign descents only). */
+  meta?: RunMeta;
 }
 export interface RaidSetup {
   layout: Layout;
@@ -494,6 +498,12 @@ export class Raid {
       this.dread = 8;
       this.dreadMax = 20;
     }
+    // Sanctum: more dread to start with and room for more.
+    const dreadUp = Math.round(this.meta("dread"));
+    if (dreadUp > 0) {
+      this.dreadMax += dreadUp;
+      this.dread += dreadUp;
+    }
     if (this.mutators.has("leyLines"))
       this.dread = Math.min(this.dreadMax, this.dread + 6);
     const tierOf = (k: PieceId) => setup.mods.tiers[k] ?? 1;
@@ -680,6 +690,11 @@ export class Raid {
     if (kind === "gargoyle" && this.asp("gargoyle")) dmgMul *= 1.3;
     if (kind === "wraith" && this.asp("wraith")) hpMul *= 0.7;
     if (kind === "archer" && this.asp("archer")) dmgMul *= 0.75;
+    // Sanctum: the Heart, talents and heirlooms, then the piece's forge.
+    const forged = this.piecePow(kind);
+    hpMul *= (1 + this.meta("monsterHp")) * forged;
+    dmgMul *= (1 + this.meta("monsterDmg")) * forged;
+    spd *= 1 + this.meta("monsterSpd");
     const hp = Math.round(st.hp * hpMul);
     const m: Monster = {
       ...this.base(x, y, hp),
@@ -712,6 +727,17 @@ export class Raid {
   }
 
   // ---------- helpers ----------
+  /** A Sanctum stat for this raid (0 without one). */
+  private meta(k: keyof RunMeta["s"]) {
+    return this.setup.mods.meta?.s[k] ?? 0;
+  }
+  /** Forge power of the piece behind a source (1 without one). */
+  private piecePow(source: string) {
+    const m = this.setup.mods.meta;
+    if (!m) return 1;
+    const p = sourcePiece(source);
+    return 1 + ((p && m.p[p]?.pow) || 0);
+  }
   /** Is this piece's mastered aspect in play? */
   private asp(k: PieceId) {
     return this.aspects.has(k);
@@ -769,6 +795,7 @@ export class Raid {
   /** Trap cycle speed: Oiled Gears, the Tinkerer and Steel IV shorten it. */
   private rearmMul(kind?: PieceId) {
     return (
+      (1 / (1 + this.meta("rearm"))) *
       (this.relics.has("quickHands") ? 0.65 : 1) *
       (this.setup.mods.arch === "tinkerer" ? 0.75 : 1) *
       (kind && PIECE_SCHOOL[kind] === "steel" && this.school("steel") >= 2
@@ -890,6 +917,18 @@ export class Raid {
         (type === "fire" || type === "poison")
       )
         amt *= 1.3;
+      // Sanctum bonuses. Monster blows already carry their forge power.
+      if (this.setup.mods.meta) {
+        if (TRAP_KINDS.has(source)) {
+          amt *= 1 + this.meta("trapDmg");
+          amt *= this.piecePow(source);
+        }
+        if (type === "fire" || type === "poison")
+          amt *= 1 + this.meta("fireDmg");
+        if (source === "rockfall" || source === "chill")
+          amt *= 1 + this.meta("powerDmg");
+        if (u.elite || isChampion(u.cls)) amt *= 1 + this.meta("bossDmg");
+      }
       u.lastSource = source;
       u.lastType = type;
       // A ward soaks damage before health.
@@ -1007,9 +1046,15 @@ export class Raid {
     const comboGold =
       Math.max(0, this.combo - 1) * 3 * (this.relics.has("echoes") ? 2 : 1);
     gold += comboGold;
-    this.gold += gold;
-    this.addDread(2);
     const src = h.lastSource || "unknown";
+    // Sanctum: Blood Price and forge talents on the killing piece.
+    const killer = this.setup.mods.meta
+      ? this.setup.mods.meta.p[sourcePiece(src) ?? ("" as PieceId)]
+      : undefined;
+    const goldUp = this.meta("bounty") + (killer?.gold ?? 0);
+    if (goldUp) gold = Math.round(gold * (1 + goldUp));
+    this.gold += gold;
+    this.addDread(2 + (killer?.dread ?? 0));
     this.stats.kills[src] = (this.stats.kills[src] ?? 0) + 1;
     this.stats.classKills[h.cls] = (this.stats.classKills[h.cls] ?? 0) + 1;
     if (h.elite) this.stats.eliteKills++;

@@ -68,6 +68,8 @@ import {
   type Encounter,
 } from "../game/encounters";
 import { fmt, h, heroArt, icon, pieceArt } from "./dom";
+import { infamyLevel, metaBonus, statText, STAT_IDS } from "../game/meta";
+import { sanctumAlert } from "./sanctum";
 import {
   ALT_KITS,
   ALT_KIT_LEVEL,
@@ -197,6 +199,10 @@ export interface TitleOpts {
   onArmory(): void;
   /** Today's bounty board (shown once the first descent is done). */
   board?: BountyBoard | null;
+  onSanctum(): void;
+  /** Souls waiting in the Soul Well (null: not open yet). */
+  well: number | null;
+  onWell(): void;
 }
 export function titleScreen(o: TitleOpts) {
   const p = o.profile;
@@ -319,6 +325,48 @@ export function titleScreen(o: TitleOpts) {
           "btn tile",
         ),
       ),
+      p.runs > 0
+        ? h(
+            "div",
+            { class: "sanctum-row" },
+            btn(
+              h(
+                "span",
+                {},
+                icon("dread"),
+                h(
+                  "span",
+                  { class: "sr-text" },
+                  h("b", {}, "The Sanctum"),
+                  h(
+                    "small",
+                    {},
+                    `${fmt(p.souls)} souls · Infamy ${infamyLevel(p.infamyXp).level}`,
+                  ),
+                ),
+              ),
+              o.onSanctum,
+              `btn sanctum-btn${sanctumAlert(p) ? " alert" : ""}${p.seen.includes("sanctumOpened") ? "" : " fresh"}`,
+            ),
+            o.well !== null
+              ? btn(
+                  h(
+                    "span",
+                    { class: "sr-text" },
+                    h("b", {}, "Soul Well"),
+                    h(
+                      "small",
+                      {},
+                      o.well > 0 ? `+${fmt(o.well)} ready` : "Filling…",
+                    ),
+                  ),
+                  o.onWell,
+                  `btn well-btn${o.well > 0 ? " ready" : ""}`,
+                  o.well > 0 ? {} : { disabled: "" },
+                )
+              : null,
+          )
+        : null,
       h(
         "div",
         { class: "row3 small" },
@@ -378,6 +426,8 @@ export interface SetupChoice {
   omens: OmenId[];
   /** 1 = the architect's alternate starting kit. */
   kit: number;
+  /** Seal the Sanctum: no meta bonuses this descent. */
+  pure: boolean;
 }
 export function setupScreen(
   profile: Profile,
@@ -462,6 +512,47 @@ export function setupScreen(
     Math.min(profile.maxDepth, initialDepth ?? profile.maxDepth),
   );
   const omensOpen = profile.bestHeat >= 0;
+  let pure = !!profile.pure;
+  const sanctumOpen = profile.runs > 0;
+  const sanctumSection = () => {
+    const m = metaBonus(profile);
+    const top = STAT_IDS.filter((k) => m.s[k])
+      .slice(0, 4)
+      .map((k) => statText(k, m.s[k]!));
+    return h(
+      "div",
+      { class: "sanctum-pick" },
+      h(
+        "div",
+        { class: "kit-row" },
+        ...[false, true].map((sealed) =>
+          h(
+            "button",
+            {
+              class: `choice kit${pure === sealed ? " on" : ""}`,
+              "aria-pressed": pure === sealed ? "true" : "false",
+              onclick: () => {
+                audio.play("click");
+                pure = sealed;
+                render();
+              },
+            },
+            h("b", {}, sealed ? "Sealed" : "Empowered"),
+            h(
+              "small",
+              {},
+              sealed
+                ? "A pure descent: no Sanctum bonuses."
+                : top.length
+                  ? top.join(" · ") +
+                    (STAT_IDS.filter((k) => m.s[k]).length > 4 ? " …" : "")
+                  : "Heart, talents, forge and heirlooms apply.",
+            ),
+          ),
+        ),
+      ),
+    );
+  };
   const omens = new Set<OmenId>(omensOpen ? profile.omens : []);
   const root = h("div", { class: "panel setup" });
   const omenSection = () => {
@@ -670,6 +761,8 @@ export function setupScreen(
         }),
       ),
       kitSection(),
+      sanctumOpen ? h("h3", {}, "Sanctum") : "",
+      sanctumOpen ? sanctumSection() : "",
       activeAspects(profile).length === 0
         ? ""
         : h(
@@ -715,6 +808,7 @@ export function setupScreen(
               depth,
               omens: [...omens],
               kit: kitOf(arch),
+              pure: sanctumOpen && pure,
             }),
           "btn primary",
         ),
@@ -1073,6 +1167,14 @@ export function gameOverScreen(o: {
             { class: "row" },
             h("span", {}, "Deepest abyss night"),
             h("b", {}, String(lastNight)),
+          )
+        : null,
+      run.souls
+        ? h(
+            "div",
+            { class: "row" },
+            h("span", {}, "Souls earned"),
+            h("b", { class: "souls" }, `+${fmt(run.souls)}`),
           )
         : null,
       h(

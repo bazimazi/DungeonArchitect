@@ -47,6 +47,8 @@ import {
   currentBoard,
   recordNight,
   recordWinXp,
+  addSouls,
+  syncMetaStats,
   type Progress,
 } from "./game/profile";
 import { SIGNATURE_LEVEL } from "./game/progression";
@@ -59,6 +61,15 @@ import {
   schoolCounts,
 } from "./game/schools";
 import { armoryScreen } from "./ui/progress";
+import { sanctumScreen, type SanctumTab } from "./ui/sanctum";
+import {
+  SOULS,
+  collectWell,
+  metaBonus,
+  wellAmount,
+  RARITIES,
+  heirloomName,
+} from "./game/meta";
 import {
   allPlansWon,
   award,
@@ -441,35 +452,122 @@ export class Game {
     this.resetDemo();
     this.layout();
     this.renderer.resetView();
-    const daily = this.profile.daily[todayKey()];
+    this.titleEl = titleScreen(this.titleOpts());
     this.closeTitle = this.layer.open(
-      titleScreen({
-        profile: this.profile,
-        run: this.run,
-        dailyDone: !!daily,
-        onContinue: () => this.continueRun(),
-        onNew: () => this.openSetup(),
-        onDaily: () => this.startDaily(),
-        onWorkshop: () => this.openWorkshop(),
-        onTrials: () => this.openTrials(),
-        onAtlas: () => this.openAtlas(),
-        onCodex: () =>
-          this.layer.open(
-            codexScreen(this.profile, () => this.layer.close()),
-            { modal: true, onDismiss: () => this.layer.close() },
-          ),
-        onFeats: () =>
-          this.layer.open(
-            featsScreen(this.profile, () => this.layer.close()),
-            { modal: true, onDismiss: () => this.layer.close() },
-          ),
-        onSettings: () => this.openSettings(),
-        onArmory: () => this.openArmory(),
-        board: currentBoard(this.profile),
-      }),
+      this.titleEl,
       // The root screen: back leaves the game.
       { onBack: () => false },
     );
+    this.introduceSanctum();
+  }
+  /** After the first descent, point at the Sanctum once (never blocking). */
+  private introduceSanctum() {
+    const p = this.profile;
+    if (p.runs < 1 || p.seen.includes("sanctum")) return;
+    p.seen.push("sanctum");
+    saveProfile(p);
+    this.hud.toast(
+      `The Sanctum is open: ${p.souls} souls to spend on lasting power.`,
+      "gold",
+    );
+  }
+  private titleEl: HTMLElement | null = null;
+  /** Redraw the title in place (souls, well, Sanctum alerts). */
+  private refreshTitle() {
+    if (!this.titleEl || this.kind !== "title") return;
+    const fresh = titleScreen(this.titleOpts());
+    this.titleEl.replaceChildren(...fresh.childNodes);
+  }
+  private wellReady() {
+    const p = this.profile;
+    if (p.bestDepth < 1) return null;
+    return wellAmount(p, p.bestDepth, metaBonus(p).s.well ?? 0, Date.now());
+  }
+  private drawWell() {
+    const p = this.profile;
+    const v = collectWell(p, p.bestDepth, Date.now());
+    if (v > 0) {
+      p.stats.souls += v;
+      p.stats.wells++;
+      audio.play("coin");
+      this.hud.toast(`The Soul Well gives ${v} souls`, "gold");
+    }
+    this.sanctumFeats();
+    this.toastFeats();
+    this.refreshTitle();
+  }
+  /** Feats earned in the Sanctum. */
+  private sanctumFeats() {
+    const p = this.profile;
+    syncMetaStats(p);
+    if (
+      (p.talents.design ?? 0) +
+      (p.talents.legion ?? 0) +
+      (p.talents.fourth ?? 0)
+    )
+      this.earn("keystone");
+    if (Object.values(p.forge).some((v) => (v ?? 0) >= 30))
+      this.earn("forged30");
+    if (p.heirlooms.some((x) => x.rarity >= 4 && x.temper >= 10))
+      this.earn("temper10");
+    this.pendingFeats.push(...awardStats(p));
+  }
+  private openSanctum(tab?: SanctumTab) {
+    if (!this.profile.seen.includes("sanctumOpened")) {
+      this.profile.seen.push("sanctumOpened");
+      saveProfile(this.profile);
+    }
+    this.layer.open(
+      sanctumScreen({
+        profile: this.profile,
+        tab,
+        onChange: () => {
+          this.sanctumFeats();
+          this.toastFeats();
+        },
+        onClose: () => {
+          this.layer.close();
+          this.refreshTitle();
+        },
+      }),
+      {
+        modal: true,
+        onDismiss: () => {
+          this.layer.close();
+          this.refreshTitle();
+        },
+      },
+    );
+  }
+  private titleOpts() {
+    const daily = this.profile.daily[todayKey()];
+    return {
+      profile: this.profile,
+      run: this.run,
+      dailyDone: !!daily,
+      onContinue: () => this.continueRun(),
+      onNew: () => this.openSetup(),
+      onDaily: () => this.startDaily(),
+      onWorkshop: () => this.openWorkshop(),
+      onTrials: () => this.openTrials(),
+      onAtlas: () => this.openAtlas(),
+      onCodex: () =>
+        this.layer.open(
+          codexScreen(this.profile, () => this.layer.close()),
+          { modal: true, onDismiss: () => this.layer.close() },
+        ),
+      onFeats: () =>
+        this.layer.open(
+          featsScreen(this.profile, () => this.layer.close()),
+          { modal: true, onDismiss: () => this.layer.close() },
+        ),
+      onSettings: () => this.openSettings(),
+      onArmory: () => this.openArmory(),
+      board: currentBoard(this.profile),
+      onSanctum: () => this.openSanctum(),
+      well: this.wellReady(),
+      onWell: () => this.drawWell(),
+    };
   }
   private openArmory() {
     this.layer.open(
@@ -622,6 +720,7 @@ export class Game {
       depth: number;
       omens?: OmenId[];
       kit?: number;
+      pure?: boolean;
     }) => {
       const seed = Math.floor(Math.random() * 2 ** 31);
       const p = this.profile;
@@ -631,7 +730,12 @@ export class Game {
         powers: unlockedPowers(p),
         aspects: activeAspects(p),
         signature: archLevelOf(p, o.architect) >= SIGNATURE_LEVEL,
+        // The Sanctum's power, frozen for the whole descent.
+        meta: o.pure ? null : metaBonus(p),
+        pool: unlockedPieces(p),
+        pure: !!o.pure,
       });
+      this.profile.pure = !!o.pure;
       this.profile.omens = [...(o.omens ?? [])];
       this.profile.lastArch = o.architect;
       this.profile.runs++;
@@ -829,6 +933,8 @@ export class Game {
       newStars = out.stars - prev;
       p.trials[t.id] = out.stars;
       p.renown += newStars;
+      const souls = addSouls(p, newStars * SOULS.trialStar);
+      if (souls) this.hud.toast(`+${souls} souls`, "gold");
     }
     p.stats.trialStars = trialStarsTotal(p.trials);
     p.kills += result.killed;
@@ -1807,6 +1913,14 @@ export class Game {
       stars,
       run.hoard > 0,
     );
+    run.souls = (run.souls ?? 0) + progress.souls;
+    if (progress.heirloom) {
+      const it = progress.heirloom;
+      this.hud.toast(
+        `${RARITIES[it.rarity].name} heirloom: ${heirloomName(it)}`,
+        "gold",
+      );
+    }
     this.progressFeats(result);
     this.nightFeats(run, result, stars, stolen);
     const deadliest = Object.entries(result.kills).sort(
@@ -2104,6 +2218,7 @@ export class Game {
         out.renown += crowns.renown;
         if (realmSwept(p, run.depth)) this.earn("realmSweep");
         if (allPlansWon(p)) this.earn("planner");
+        if (run.pure && run.depth >= 8) this.earn("purist");
       }
       if (run.history.every((r) => r.stolen === 0)) this.earn("perfect");
       if (run.history.every((r) => r.stars === 3)) this.earn("allStars");
@@ -2121,6 +2236,7 @@ export class Game {
       };
       p.daily[run.daily] = d;
       p.stats.dailies++;
+      addSouls(p, SOULS.daily + SOULS.dailyStar * d.stars);
       out.dailyText = this.dailyText(run.daily, d);
     }
     run.settled = true;

@@ -2,7 +2,7 @@
 
 Build a dungeon of traps and monsters, then watch greedy heroes try to rob it.
 
-Dungeon Architect is a roguelite dungeon-defense game. Each descent lasts ten nights. Every night you dig tunnels, place traps and monsters, and see the party that's coming. Then night falls, and the heroes march on your hoard. After each raid you pick one of three boons. You win if your hoard survives the champion on night ten. Each win opens a deeper dungeon, and the depths never end. You can also carry a winning dungeon into the endless Abyss.
+Dungeon Architect is a roguelite dungeon-defense game. Each descent lasts ten nights. Every night you dig tunnels, place traps and monsters, and see the party that's coming. Then night falls, and the heroes march on your hoard. After each raid you pick one of three boons. You win if your hoard survives the champion on night ten. Each win opens a deeper dungeon, and the depths never end. You can also carry a winning dungeon into the endless Abyss. Between descents, the souls and infamy you earn build lasting power in the Sanctum.
 
 It runs in any modern browser, works offline after the first visit, and ships as Android and iOS apps via Capacitor. There is no server: dungeons are shared as links.
 
@@ -36,7 +36,14 @@ npm run dev        # http://localhost:5173
 - **Omens:** after your first victory, add any of 15 curses to a descent (tougher heroes, fewer pieces, no powers, a blindfold, empowered elites, sleeping schools…). Each omen adds heat, up to 30, and every point of heat adds 10% renown.
 - **Abyss:** after a victory, keep going. Every night is harder, and a champion comes every fifth night. How deep can your dungeon go?
 - **Trials:** 25 handcrafted puzzle dungeons in six chapters. Each has a fixed party, fixed blueprints, a gold budget and no powers. Earn stars for defending, slaying everyone, and doing it under par.
-- **Feats:** 74 long-term goals that pay renown.
+- **The Sanctum:** lasting power that keeps growing. Every night pays **souls** and **infamy** (more at greater depth, under heat and in the abyss), and so do bounties, dailies, trial stars and feats.
+  - **Dungeon Heart:** seventeen upgrades bought with souls (trap damage, monster health and damage, fire, powers, starting gold, tribute, dread, treasure, capacity, soul harvest…). Most never cap; their costs grow geometrically.
+  - **Forge:** every piece has its own forge level (+1.5% power each), capped by its mastery rank until rank IV and endless after it, plus three rows of piece talents (Honed or Thrifty, Blood Price or Terror, Heirloom or Masterwork).
+  - **Dark Arts:** each infamy level (endless) is a talent point for a three-branch tree (Engineer, Warlord, Overseer) with keystones (Grand Design, Legion, Fourth Card) and endless paragon nodes. Respecs are free.
+  - **Heirlooms:** equipment found on good nights and every conquest, with five rarities, an item level that follows depth, rolled affixes and eight legendary powers. Equip up to five, temper them with souls or salvage them.
+  - **Soul Well:** after your first conquest it fills with souls while you are away (up to 12 hours).
+  - The Sanctum applies to new campaign descents only, never to dailies, trials, the workshop or raid links. A descent can be started **sealed** for a pure challenge.
+- **Feats:** 96 long-term goals that pay renown (and souls).
 - **Daily:** the same seeded run for everyone each UTC day, with a shareable result line.
 - **Workshop:** unlimited gold and every unlocked piece. Test against any night's party and share your dungeon as a link.
 - **Raid links:** opening `#raid=…` lets you assemble a hero party and try to rob a friend's dungeon.
@@ -60,6 +67,7 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rat
   - `floorplans.ts`: the map archetype of each depth.
   - `schools.ts`: schools, aspects and elite affixes (rules v5 data).
   - `progression.ts`: piece mastery, the bestiary, daily bounties and architect levels.
+  - `meta.ts`: the Sanctum (rules v6): souls, infamy, the Dungeon Heart, the Forge, the Dark Arts, heirlooms and the Soul Well.
   - `encounters.ts`: dawn visitors and their offers.
   - `share.ts`: link codec.
   - `trials.ts`: the handcrafted trial dungeons.
@@ -69,7 +77,7 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rat
   - `sprites.ts`: procedural art.
   - `fx.ts`: particles and floating text.
 - `src/engine`: seeded RNG, easing and noise (`math.ts`), and the synthesized audio and music (`audio.ts`).
-- `src/ui`: the DOM HUD and the screens.
+- `src/ui`: the DOM HUD and the screens (`sanctum.ts` is the Sanctum).
 - `src/app.ts`: the game controller (loop, input, state machine, and the glue from simulation events to effects).
 
 The simulation runs at a fixed 20 Hz and uses only IEEE-exact arithmetic. Identical inputs replay identically on any device, which is what makes daily runs and shared raids fair. The renderer interpolates between ticks and never feeds anything back into the simulation.
