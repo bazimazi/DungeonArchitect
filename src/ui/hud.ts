@@ -16,6 +16,13 @@ import {
   type PowerId,
 } from "../game/defs";
 import type { PartyMember, Raid } from "../game/sim";
+import {
+  AFFIXES,
+  SCHOOLS,
+  SCHOOL_IDS,
+  SCHOOL_TIERS,
+  type SchoolId,
+} from "../game/schools";
 import { countTo, h, heroArt, icon, pieceArt } from "./dom";
 
 export interface TrayItem {
@@ -201,6 +208,7 @@ export class Hud {
       h("span", { class: "lbl" }, "Undo"),
     );
     this.trayItems = h("div", { class: "tray-items" });
+    this.schoolsEl = h("div", { class: "schools", "aria-label": "Schools" });
     this.routeEl = h("span", { class: "route" });
     this.startBtn = h(
       "button",
@@ -240,6 +248,7 @@ export class Hud {
     this.tray = h(
       "footer",
       { class: "tray" },
+      this.schoolsEl,
       h(
         "div",
         { class: "tray-row" },
@@ -288,6 +297,55 @@ export class Hud {
       this.bannerEl,
       this.comboEl,
       this.coachEl,
+    );
+  }
+
+  private schoolsEl: HTMLElement;
+  private lastSchools = "";
+  /**
+   * School chips: every school with a piece in the dungeon, how many kinds
+   * it has, and which tiers are awake. Tap a chip to read its bonuses.
+   */
+  setSchools(counts: Record<SchoolId, number>, enabled = true) {
+    const key = JSON.stringify([counts, enabled]);
+    if (key === this.lastSchools) return;
+    this.lastSchools = key;
+    this.schoolsEl.replaceChildren(
+      ...SCHOOL_IDS.filter((s) => counts[s] > 0).map((s) => {
+        const d = SCHOOLS[s];
+        const c = counts[s];
+        const lv = !enabled
+          ? 0
+          : c >= SCHOOL_TIERS[1]
+            ? 2
+            : c >= SCHOOL_TIERS[0]
+              ? 1
+              : 0;
+        return h(
+          "button",
+          {
+            class: `school-chip lv${lv}`,
+            style: `--sc:${d.color}`,
+            title: `${d.name}: II ${d.tiers[0]} IV ${d.tiers[1]}`,
+            onclick: () =>
+              this.toast(
+                enabled
+                  ? `${d.name} ${c}/${SCHOOL_TIERS[1]} · II: ${d.tiers[0]} IV: ${d.tiers[1]}`
+                  : `${d.name}: Discord keeps your schools asleep.`,
+                lv ? "good" : "info",
+              ),
+          },
+          h("b", {}, d.name),
+          h(
+            "span",
+            { class: "school-pips" },
+            ...Array.from({ length: SCHOOL_TIERS[1] }, (_, i) =>
+              h("i", { class: i < c ? "on" : "" }),
+            ),
+          ),
+          lv ? h("small", {}, lv === 2 ? "IV" : "II") : null,
+        );
+      }),
     );
   }
 
@@ -443,15 +501,26 @@ export class Hud {
             },
             "?",
           );
+        const affixes = (p.affixes ?? []).map((a) => AFFIXES[a]);
+        const label = `${affixes.map((a) => a.name + " ").join("")}${p.elite ? "Elite " : ""}${HEROES[p.cls].name}`;
         const cell = h(
           "button",
           {
-            class: `hero-chip${p.elite ? " elite" : ""}${isChampion(p.cls) ? " boss" : ""}`,
-            "data-name": `${p.elite ? "Elite " : ""}${HEROES[p.cls].name}`,
-            "aria-label": `${HEROES[p.cls].name}${p.elite ? " (elite)" : ""}`,
+            class: `hero-chip${p.elite ? " elite" : ""}${isChampion(p.cls) ? " boss" : ""}${affixes.length ? " affixed" : ""}`,
+            "data-name": label,
+            "aria-label": label,
           },
           heroArt(p.cls, 40, p.elite),
           h("span", { class: "hp" }, h("i")),
+          affixes.length
+            ? h(
+                "span",
+                { class: "affix-dots" },
+                ...affixes.map((a) =>
+                  h("i", { style: `background:${a.color}`, title: a.name }),
+                ),
+              )
+            : null,
         );
         cell.addEventListener("click", () => this.hd.hero(p.cls, cell));
         return cell;
@@ -636,7 +705,11 @@ export class Hud {
     this.info.classList.add("in");
   }
   hideInfo() {
+    clearTimeout(this.infoTimer);
     this.info.hidden = true;
+  }
+  get infoOpen() {
+    return !this.info.hidden;
   }
 
   toast(text: string, kind: "info" | "bad" | "good" | "gold" = "info") {

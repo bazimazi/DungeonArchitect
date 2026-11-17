@@ -68,21 +68,56 @@ import {
   type Encounter,
 } from "../game/encounters";
 import { fmt, h, heroArt, icon, pieceArt } from "./dom";
+import {
+  ALT_KITS,
+  ALT_KIT_LEVEL,
+  BESTIARY_NAMES,
+  LORE,
+  SIGNATURE,
+  SIGNATURE_LEVEL,
+  archLevel,
+  bestiaryMarks,
+  bestiaryNext,
+  type BountyBoard,
+} from "../game/progression";
+import { activeAspects, totalMarks, type Progress } from "../game/profile";
+import { SCHOOLS, SCHOOL_IDS } from "../game/schools";
+import { affixChips, bountyPanel, progressList } from "./progress";
+
+/**
+ * What the back action did to the layer stack:
+ * - "none": no layer is open;
+ * - "done": the top layer handled it (closed, cancelled, went back);
+ * - "blocked": the top layer needs an answer and ignores back;
+ * - "pass": the top layer is a root screen that lets the platform leave.
+ */
+export type BackResult = "none" | "done" | "blocked" | "pass";
 
 export class Layer {
   root: HTMLElement;
   private stack: HTMLElement[] = [];
-  private dismiss = new Map<HTMLElement, () => void>();
+  private backs = new Map<HTMLElement, () => boolean | void>();
   constructor(root: HTMLElement) {
     this.root = root;
   }
+  /**
+   * `onDismiss` closes the layer on a tap outside it and on back.
+   * `onBack` handles back (Escape, browser or Android back) only; returning
+   * false marks a root screen that lets the platform leave the game.
+   * Layers with neither need an answer: back leaves them open.
+   */
   open(
     el: HTMLElement,
-    opts: { modal?: boolean; onDismiss?: () => void } = {},
+    opts: {
+      modal?: boolean;
+      onDismiss?: () => void;
+      onBack?: () => boolean | void;
+    } = {},
   ) {
     const wrap = h("div", { class: `layer${opts.modal ? " modal" : ""}` }, el);
+    const back = opts.onBack ?? opts.onDismiss;
+    if (back) this.backs.set(wrap, back);
     if (opts.onDismiss) {
-      this.dismiss.set(wrap, opts.onDismiss);
       wrap.addEventListener("pointerdown", (e) => {
         if (e.target === wrap) {
           audio.play("click");
@@ -103,19 +138,20 @@ export class Layer {
     const w = wrap ?? this.stack[this.stack.length - 1];
     if (!w) return;
     this.stack = this.stack.filter((x) => x !== w);
-    this.dismiss.delete(w);
+    this.backs.delete(w);
     w.classList.remove("in");
     w.classList.add("out");
     setTimeout(() => w.remove(), 220);
   }
-  /** Escape / back: only closes layers that allow dismissal. */
-  dismissTop() {
+  /** Back on the top layer (see `open` for how layers answer it). */
+  back(): BackResult {
     const top = this.stack[this.stack.length - 1];
-    const f = top && this.dismiss.get(top);
-    if (f) {
-      audio.play("click");
-      f();
-    }
+    if (!top) return "none";
+    const f = this.backs.get(top);
+    if (!f) return "blocked";
+    if (f() === false) return "pass";
+    audio.play("click");
+    return "done";
   }
   closeAll() {
     for (const w of [...this.stack]) this.close(w);
@@ -158,6 +194,9 @@ export interface TitleOpts {
   onCodex(): void;
   onFeats(): void;
   onSettings(): void;
+  onArmory(): void;
+  /** Today's bounty board (shown once the first descent is done). */
+  board?: BountyBoard | null;
 }
 export function titleScreen(o: TitleOpts) {
   const p = o.profile;
@@ -284,6 +323,7 @@ export function titleScreen(o: TitleOpts) {
         "div",
         { class: "row3 small" },
         btn(h("span", {}, icon("book"), " Codex"), o.onCodex, "btn ghost"),
+        btn(h("span", {}, icon("hammer"), " Armory"), o.onArmory, "btn ghost"),
         btn(
           h(
             "span",
@@ -326,6 +366,7 @@ export function titleScreen(o: TitleOpts) {
         ? h("div", { class: "records" }, records.join(" · "))
         : null,
     ),
+    o.board && p.runs > 0 ? bountyPanel(o.board) : null,
   );
 }
 
@@ -335,6 +376,8 @@ export interface SetupChoice {
   architect: ArchitectId;
   depth: number;
   omens: OmenId[];
+  /** 1 = the architect's alternate starting kit. */
+  kit: number;
 }
 export function setupScreen(
   profile: Profile,
@@ -345,7 +388,75 @@ export function setupScreen(
   const biomes = unlockedBiomes(profile);
   const archs = unlockedArchitects(profile);
   let biome: BiomeId = biomes[biomes.length - 1];
-  let arch: ArchitectId = "mason";
+  let arch: ArchitectId = archs.includes(profile.lastArch as ArchitectId)
+    ? (profile.lastArch as ArchitectId)
+    : "mason";
+  const kitOf = (a: ArchitectId) =>
+    archLevel(profile.archXp[a] ?? 0).level >= ALT_KIT_LEVEL
+      ? (profile.kits[a] ?? 0)
+      : 0;
+  const kitSection = () => {
+    const lv = archLevel(profile.archXp[arch] ?? 0);
+    const kits = [
+      { name: "Standard", start: ARCHITECTS.find((a) => a.id === arch)!.start },
+      ALT_KITS[arch],
+    ];
+    const sig = RELICS[SIGNATURE[arch]];
+    return h(
+      "div",
+      { class: "arch-progress" },
+      h(
+        "div",
+        { class: "arch-level" },
+        h("b", {}, `Level ${lv.level}`),
+        h(
+          "div",
+          { class: "bar" },
+          h("i", { style: `width:${Math.round(lv.frac * 100)}%` }),
+        ),
+        h(
+          "small",
+          {},
+          lv.next === null
+            ? "Paragon"
+            : `${profile.archXp[arch] ?? 0}/${lv.next} XP · nights and stars earn XP`,
+        ),
+      ),
+      h(
+        "div",
+        { class: "kit-row" },
+        ...kits.map((k, i) => {
+          const locked = i === 1 && lv.level < ALT_KIT_LEVEL;
+          return h(
+            "button",
+            {
+              class: `choice kit${kitOf(arch) === i ? " on" : ""}${locked ? " locked" : ""}`,
+              disabled: locked,
+              onclick: () => {
+                audio.play("click");
+                profile.kits[arch] = i;
+                render();
+              },
+            },
+            h("b", {}, k.name),
+            h(
+              "div",
+              { class: "starts" },
+              ...k.start.map((s) => pieceArt(s, 26)),
+            ),
+            locked ? h("small", {}, `Level ${ALT_KIT_LEVEL}`) : null,
+          );
+        }),
+      ),
+      h(
+        "p",
+        { class: `muted sig${lv.level >= SIGNATURE_LEVEL ? " on" : ""}` },
+        lv.level >= SIGNATURE_LEVEL
+          ? `Signature relic in your drafts: ${sig.name} (${sig.text})`
+          : `Level ${SIGNATURE_LEVEL}: ${sig.name} joins your drafts.`,
+      ),
+    );
+  };
   let depth = Math.max(
     1,
     Math.min(profile.maxDepth, initialDepth ?? profile.maxDepth),
@@ -539,7 +650,14 @@ export function setupScreen(
                 ? h("span", { class: "won", title: "Has won a descent" }, " ★")
                 : "",
             ),
-            h("small", {}, a.title),
+            h(
+              "small",
+              {},
+              a.title,
+              locked
+                ? ""
+                : ` · Lv ${archLevel(profile.archXp[a.id] ?? 0).level}`,
+            ),
             h("p", {}, locked ? `Unlocks at ${a.unlockRenown} renown` : a.text),
             locked
               ? null
@@ -551,6 +669,16 @@ export function setupScreen(
           );
         }),
       ),
+      kitSection(),
+      activeAspects(profile).length === 0
+        ? ""
+        : h(
+            "p",
+            { class: "muted aspects-line" },
+            `Aspects equipped: ${activeAspects(profile)
+              .map((id) => PIECES[id].name)
+              .join(", ")}`,
+          ),
       h("h3", {}, "Biome"),
       h(
         "div",
@@ -580,7 +708,14 @@ export function setupScreen(
         btn("Back", onBack, "btn ghost"),
         btn(
           h("b", {}, "Descend"),
-          () => onStart({ biome, architect: arch, depth, omens: [...omens] }),
+          () =>
+            onStart({
+              biome,
+              architect: arch,
+              depth,
+              omens: [...omens],
+              kit: kitOf(arch),
+            }),
           "btn primary",
         ),
       ),
@@ -606,6 +741,8 @@ export function resultsScreen(o: {
   unlocked: string[];
   wager?: { stake: number; won: number } | null;
   tunnels?: { dug: number; from: number; to: number } | null;
+  progress?: Progress | null;
+  archName?: string;
 }) {
   const starEls = [0, 1, 2].map((i) =>
     h("span", { class: `star s${i}` }, icon("star")),
@@ -661,6 +798,8 @@ export function resultsScreen(o: {
         h("div", { class: "row" }, h("span", {}, k), h("b", {}, v)),
       ),
     ),
+    schoolLine(o.result),
+    o.progress ? progressList(o.progress, o.archName) : null,
     o.feats.length ? featList(o.feats) : null,
     o.unlocked.length ? unlockList(o.unlocked) : null,
     h(
@@ -690,6 +829,27 @@ export function resultsScreen(o: {
         ((r as HTMLElement).style.animationDelay = `${0.25 + i * 0.08}s`),
     );
   return root;
+}
+
+/** Schools that were awake during the raid. */
+function schoolLine(r: RaidResult) {
+  const awake = SCHOOL_IDS.filter((s) => (r.schools?.[s] ?? 0) > 0);
+  if (!awake.length) return null;
+  return h(
+    "div",
+    { class: "school-line" },
+    ...awake.map((s) =>
+      h(
+        "span",
+        {
+          class: "school-chip lv" + r.schools[s],
+          style: `--sc:${SCHOOLS[s].color}`,
+        },
+        h("b", {}, SCHOOLS[s].name),
+        h("small", {}, r.schools[s] === 2 ? "IV" : "II"),
+      ),
+    ),
+  );
 }
 
 function unlockList(items: string[]) {
@@ -1160,9 +1320,13 @@ export function codexScreen(p: Profile, onClose: () => void) {
   };
   const heroes = (Object.keys(HEROES) as HeroClass[]).map((c) => {
     const seen = p.seen.includes(c);
+    const slain = p.bestiary[c] ?? 0;
+    const marks = bestiaryMarks(c, slain);
+    const next = bestiaryNext(c, slain);
+    const bestiary = `Bestiary: ${fmt(slain)} slain · ${marks ? BESTIARY_NAMES[marks - 1] : "no marks"}${next !== null ? ` (next at ${next})` : ""}.`;
     const b = h(
       "button",
-      { class: `cx${seen ? "" : " locked"}` },
+      { class: `cx${seen ? "" : " locked"} m${marks}` },
       heroArt(c, 44),
     );
     b.addEventListener("click", () =>
@@ -1176,7 +1340,7 @@ export function codexScreen(p: Profile, onClose: () => void) {
                 ? "Champion"
                 : "Hero",
             HEROES[c].rule,
-            `Counter: ${HERO_COUNTER[c]} · Health ${HEROES[c].hp} · Bounty ${HEROES[c].bounty}`,
+            `Counter: ${HERO_COUNTER[c]} · Health ${HEROES[c].hp} · Bounty ${HEROES[c].bounty}. ${bestiary}${marks >= 2 ? ` "${LORE[c]}"` : ""}`,
           )
         : show(
             h("span", { class: "q" }, "?"),
@@ -1213,6 +1377,33 @@ export function codexScreen(p: Profile, onClose: () => void) {
     );
     return b;
   });
+  const schools = SCHOOL_IDS.map((s) => {
+    const d = SCHOOLS[s];
+    const b = h(
+      "button",
+      {
+        class: "cx mutx school",
+        style: `--sc:${d.color}`,
+        "aria-label": d.name,
+      },
+      d.name,
+    );
+    b.addEventListener("click", () =>
+      show(
+        icon("blocks", "ic huge"),
+        d.name,
+        `School · ${d.pieces.map((x) => PIECES[x].name).join(", ")}`,
+        `Place 2 different pieces of this school: ${d.tiers[0]} Place 4: ${d.tiers[1]}`,
+        p.schools4.includes(s)
+          ? "You have awakened its fourth tier."
+          : undefined,
+      ),
+    );
+    return b;
+  });
+  const affixes = affixChips((title, kind, text) =>
+    show(icon("sword", "ic huge"), title, kind, text),
+  );
   const relics = Object.values(RELICS).map((r) => {
     const b = h(
       "button",
@@ -1287,6 +1478,10 @@ export function codexScreen(p: Profile, onClose: () => void) {
       h("div", { class: "cx-grid" }, ...heroes),
       h("h3", {}, "Traps & Monsters"),
       h("div", { class: "cx-grid" }, ...pieces),
+      h("h3", {}, "Schools"),
+      h("div", { class: "cx-grid wide" }, ...schools),
+      h("h3", {}, "Elite affixes"),
+      h("div", { class: "cx-grid wide" }, ...affixes),
       h("h3", {}, "Powers"),
       h("div", { class: "cx-grid" }, ...powers),
       h("h3", {}, "Relics"),
@@ -1306,6 +1501,8 @@ export function codexScreen(p: Profile, onClose: () => void) {
       h("span", {}, `Deepest depth ${p.bestDepth}`),
       h("span", {}, `Abyss record ${p.bestAbyss || "–"}`),
       h("span", {}, `Best heat ${p.bestHeat > 0 ? p.bestHeat : "–"}`),
+      h("span", {}, `Bestiary marks ${totalMarks(p)}`),
+      h("span", {}, `Bounties ${p.stats.contracts}`),
       h(
         "span",
         {},

@@ -349,7 +349,7 @@ describe("new twists and omens", () => {
     const r = raidOn(["knight"], [], { omens: ["tempered"] });
     expect(r.heroes[0].armor).toBe(HEROES.knight.armor + 1);
     expect(heatOf(["teeming", "blind", "tempered"])).toBe(5);
-    expect(Object.values(OMENS).reduce((a, o) => a + o.heat, 0)).toBe(26);
+    expect(Object.values(OMENS).reduce((a, o) => a + o.heat, 0)).toBe(30);
   });
 });
 

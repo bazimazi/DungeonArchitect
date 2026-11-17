@@ -3093,3 +3093,345 @@ body.paused .hud[data-mode="raid"]::after {
 .crowns-earned .unlock .ic {
   color: var(--gold);
 }
+
+/* ---------- Rules v5: schools, affixes, armory, bounties ---------- */
+.title-menu .row3 {
+  grid-template-columns: repeat(4, 1fr);
+}
+@media (max-width: 420px) {
+  .title-menu .row3 {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.schools {
+  display: flex;
+  gap: 5px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  touch-action: pan-x;
+}
+.schools:empty,
+.hud[data-kind="trial"] .schools {
+  display: none;
+}
+.school-chip {
+  --sc: #888;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: #16101e;
+  border: 1px solid color-mix(in srgb, var(--sc) 35%, #2a2036);
+  color: var(--muted);
+  font: 800 10px var(--ui);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.school-chip b {
+  font: inherit;
+  color: color-mix(in srgb, var(--sc) 60%, var(--muted));
+}
+.school-chip .school-pips {
+  display: inline-flex;
+  gap: 2px;
+}
+.school-chip .school-pips i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #33284a;
+}
+.school-chip .school-pips i.on {
+  background: var(--sc);
+}
+.school-chip small {
+  font: 900 10px var(--display);
+  color: #1a1206;
+  background: var(--sc);
+  border-radius: 4px;
+  padding: 0 4px;
+}
+.school-chip.lv1,
+.school-chip.lv2 {
+  border-color: var(--sc);
+  background: color-mix(in srgb, var(--sc) 14%, #16101e);
+}
+.school-chip.lv2 {
+  box-shadow: 0 0 10px color-mix(in srgb, var(--sc) 45%, transparent);
+}
+.school-chip.lv1 b,
+.school-chip.lv2 b {
+  color: var(--text);
+}
+.school-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  justify-content: center;
+  margin-top: 10px;
+}
+.school-hint b,
+.aspect-hint b,
+.affix-hint b {
+  color: var(--sc, var(--ac, var(--gold)));
+}
+.school-hint,
+.aspect-hint,
+.affix-hint {
+  font-size: 12px;
+  color: var(--muted);
+  margin: 4px 0 0;
+}
+.affix-hint {
+  border-left: 3px solid var(--ac);
+  padding-left: 6px;
+}
+.hero-chip.affixed {
+  border-color: #ff7ad0;
+  box-shadow: 0 0 12px rgba(255, 122, 208, 0.55);
+}
+.hero-chip .affix-dots {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  display: flex;
+  gap: 1px;
+}
+.hero-chip .affix-dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  box-shadow: 0 0 0 1.5px #0b0910;
+}
+.cx.m1 {
+  box-shadow: inset 0 -3px 0 #8a6a3a;
+}
+.cx.m2 {
+  box-shadow: inset 0 -3px 0 #c9c2b8;
+}
+.cx.m3 {
+  box-shadow: inset 0 -3px 0 var(--gold);
+}
+.cx.school {
+  border-color: var(--sc);
+  color: var(--sc);
+}
+.cx.affix {
+  border-color: var(--ac);
+  color: var(--ac);
+}
+
+/* Architect progress on the setup screen */
+.arch-progress {
+  margin-top: 10px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #140f1b;
+  border: 1px solid #2c2240;
+}
+.arch-level {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 10px;
+  align-items: center;
+}
+.arch-level b {
+  font: 900 14px var(--display);
+  color: var(--gold);
+}
+.arch-level .bar {
+  margin: 0;
+}
+.arch-level small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 11px;
+}
+.kit-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.choice.kit {
+  min-height: 0;
+}
+.arch-progress .sig {
+  margin: 8px 0 0;
+  font-size: 11.5px;
+}
+.arch-progress .sig.on {
+  color: var(--gold);
+}
+.aspects-line {
+  font-size: 12px;
+}
+
+/* Bounty board */
+.bounties {
+  width: min(420px, 100%);
+  margin: 12px auto 0;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(20, 14, 28, 0.85);
+  border: 1px solid #3a2d4a;
+}
+.bounty-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+}
+.bounty-head b {
+  font: 900 13px var(--display);
+  color: var(--gold);
+}
+.bounty-head small,
+.bounty small {
+  color: var(--muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.bounty {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 2px 8px;
+  margin-top: 7px;
+  font-size: 12.5px;
+}
+.bounty .bar {
+  grid-column: 1 / -1;
+  margin: 2px 0 0;
+  height: 4px;
+}
+.bounty.done .b-text {
+  color: var(--good);
+  text-decoration: line-through;
+  text-decoration-color: rgba(126, 224, 129, 0.5);
+}
+.bounty.done small {
+  color: var(--good);
+}
+.b-text .ic {
+  color: var(--good);
+  margin-right: 4px;
+}
+.progress-earned .unlock {
+  background: rgba(199, 155, 255, 0.1);
+  color: var(--purple);
+  justify-content: flex-start;
+  text-align: left;
+}
+.progress-earned .unlock small {
+  color: var(--muted);
+}
+
+/* Armory */
+.armory {
+  width: min(720px, 100%);
+}
+.armory > .muted {
+  font-size: 12.5px;
+  margin: 8px 0 4px;
+}
+.arm-school {
+  --sc: #888;
+  margin-top: 14px;
+}
+.arm-school-head h3 {
+  margin: 0;
+  color: var(--sc);
+}
+.arm-school-head small {
+  display: block;
+  color: var(--muted);
+  font-size: 11.5px;
+  margin: 2px 0 8px;
+}
+.arm-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+.arm-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #1a1322;
+  border: 1.5px solid #33284a;
+}
+.arm-card.unowned {
+  opacity: 0.6;
+}
+.arm-card.open {
+  border-color: color-mix(in srgb, var(--sc) 55%, #33284a);
+}
+.arm-card.on {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 2px rgba(255, 209, 102, 0.18);
+}
+.arm-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.arm-head b {
+  display: block;
+  font: 900 14px var(--display);
+}
+.arm-card .rank {
+  font-size: 11px;
+  color: var(--muted);
+}
+.arm-card .rank.r2,
+.arm-card .rank.r3 {
+  color: var(--text);
+}
+.arm-card .rank.r4 {
+  color: var(--gold);
+}
+.arm-card .bar {
+  margin: 2px 0 0;
+  height: 4px;
+}
+.arm-card > small {
+  font-size: 10.5px;
+}
+.arm-card .aspect {
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: #120d18;
+}
+.arm-card .aspect b {
+  font-size: 12.5px;
+  color: var(--sc);
+}
+.arm-card:not(.open) .aspect b {
+  color: var(--dim);
+}
+.arm-card .aspect p {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  color: var(--muted);
+  line-height: 1.3;
+}
+.arm-card .btn {
+  align-self: flex-start;
+}
+.school-chip .school-pips i {
+  display: inline-block;
+}
+@media (min-width: 760px) {
+  .schools {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    bottom: calc(112px + var(--safe-b));
+    max-width: min(760px, calc(100vw - 300px));
+  }
+}

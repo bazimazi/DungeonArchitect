@@ -351,3 +351,42 @@ test("a dawn visitor is answered before building, even after a reload", async ({
   expect(after.gold).toBeGreaterThanOrEqual(gold + 55);
   expect(errors).toEqual([]);
 });
+
+test("browser back closes screens instead of leaving the game", async ({
+  page,
+}) => {
+  const errors = await fresh(page);
+  const url = page.url();
+  // Menus: back closes the codex and stays on the title.
+  await page.getByText("Codex").click();
+  await expect(page.locator(".panel.codex")).toBeVisible();
+  await page.goBack();
+  await expect(page.locator(".panel.codex")).toHaveCount(0);
+  await expect(page.locator(".title-screen")).toBeVisible();
+  expect(page.url()).toBe(url);
+  // In play: back opens the pause menu, then back again resumes.
+  await page.getByText("New Descent").click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  await page.goBack();
+  await expect(page.locator(".panel.pause")).toBeVisible();
+  await page.goBack();
+  await expect(page.locator(".panel.pause")).toHaveCount(0);
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  // A screen waiting for an answer keeps its place; the pause menu opens over it.
+  await page.locator(".start-btn").click();
+  await finishRaid(page);
+  await expect(page.locator(".results")).toBeVisible({ timeout: 10_000 });
+  await page.goBack();
+  await expect(page.locator(".panel.pause")).toBeVisible();
+  await expect(page.locator(".results")).toBeVisible();
+  await page.goBack();
+  await expect(page.locator(".panel.pause")).toHaveCount(0);
+  await expect(page.locator(".results")).toBeVisible();
+  // Escape behaves the same way as back.
+  await page.keyboard.press("Escape");
+  await expect(page.locator(".panel.pause")).toBeVisible();
+  await page.getByText("Save & quit to menu").click();
+  await expect(page.locator(".title-screen")).toBeVisible();
+  expect(page.url()).toBe(url);
+  expect(errors).toEqual([]);
+});

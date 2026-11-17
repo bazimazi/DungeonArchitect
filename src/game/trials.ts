@@ -827,13 +827,17 @@ export function trialSetup(t: TrialDef, layout: Layout): RaidSetup {
     seed: hashString(`trial-${t.id}`),
     night: t.night,
     hoard: t.hoard ?? 12,
-    mods: raidMods({
-      night: t.night,
-      depth: t.depth ?? 1,
-      mutators: [],
-      architect: "mason",
-      relics: t.relics ?? [],
-      tiers: t.tiers ?? {},
-    }),
+    mods: {
+      ...raidMods({
+        night: t.night,
+        depth: t.depth ?? 1,
+        mutators: [],
+        architect: "mason",
+        relics: t.relics ?? [],
+        tiers: t.tiers ?? {},
+      }),
+      // Trials are fixed puzzles: schools never awaken in them.
+      schools: false,
+    },
   };
 }

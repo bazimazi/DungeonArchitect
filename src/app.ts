@@ -42,6 +42,24 @@ import {
   type Layout,
 } from "./game/grid";
 import {
+  activeAspects,
+  archLevelOf,
+  currentBoard,
+  recordNight,
+  recordWinXp,
+  type Progress,
+} from "./game/profile";
+import { SIGNATURE_LEVEL } from "./game/progression";
+import {
+  AFFIXES,
+  ASPECTS,
+  PIECE_SCHOOL,
+  SCHOOLS,
+  SCHOOL_IDS,
+  schoolCounts,
+} from "./game/schools";
+import { armoryScreen } from "./ui/progress";
+import {
   allPlansWon,
   award,
   awardStats,
@@ -201,6 +219,8 @@ const SOURCE_NAMES: Record<string, string> = {
   kobold: "Kobold Tinker",
   spite: "Spiteful Dead",
   thornCrown: "Crown of Thorns",
+  thorned: "Thorned hide",
+  vaultSeal: "Vault Seal",
 };
 const ALL_PIECES = Object.keys(PIECES) as PieceId[];
 
@@ -380,7 +400,12 @@ export class Game {
     const m = location.hash.match(/raid=([A-Za-z0-9_-]+)/);
     if (!m) return false;
     const shared = decodeDungeon(m[1]);
-    history.replaceState(null, "", location.pathname + location.search);
+    // Keep the entry's state: the back-button guard (see ui/back.ts) tags it.
+    history.replaceState(
+      history.state,
+      "",
+      location.pathname + location.search,
+    );
     if (!shared) {
       this.showTitle();
       this.layer.open(
@@ -389,7 +414,7 @@ export class Game {
           "This dungeon link is damaged or from a different version of the game.",
           [["OK", () => this.layer.close(), "btn primary"]],
         ),
-        { modal: true },
+        { modal: true, onBack: () => this.layer.close() },
       );
       return true;
     }
@@ -439,7 +464,21 @@ export class Game {
             { modal: true, onDismiss: () => this.layer.close() },
           ),
         onSettings: () => this.openSettings(),
+        onArmory: () => this.openArmory(),
+        board: currentBoard(this.profile),
       }),
+      // The root screen: back leaves the game.
+      { onBack: () => false },
+    );
+  }
+  private openArmory() {
+    this.layer.open(
+      armoryScreen(
+        this.profile,
+        () => saveProfile(this.profile),
+        () => this.layer.close(),
+      ),
+      { modal: true, onDismiss: () => this.layer.close() },
     );
   }
   private resetDemo() {
@@ -573,7 +612,7 @@ export class Game {
             ],
           ],
         ),
-        { modal: true },
+        { modal: true, onBack: () => this.layer.close() },
       );
       return;
     }
@@ -582,10 +621,19 @@ export class Game {
       architect: ArchitectId;
       depth: number;
       omens?: OmenId[];
+      kit?: number;
     }) => {
       const seed = Math.floor(Math.random() * 2 ** 31);
-      this.run = newRun({ seed, ...o, powers: unlockedPowers(this.profile) });
+      const p = this.profile;
+      this.run = newRun({
+        seed,
+        ...o,
+        powers: unlockedPowers(p),
+        aspects: activeAspects(p),
+        signature: archLevelOf(p, o.architect) >= SIGNATURE_LEVEL,
+      });
       this.profile.omens = [...(o.omens ?? [])];
+      this.profile.lastArch = o.architect;
       this.profile.runs++;
       saveProfile(this.profile);
       saveRun(this.run);
@@ -696,7 +744,7 @@ export class Game {
             ["Start daily", start, "btn primary"],
           ],
         ),
-        { modal: true },
+        { modal: true, onBack: () => this.layer.close() },
       );
       return;
     }
@@ -890,6 +938,7 @@ export class Game {
         },
         onBack: () => this.showTitle(),
       }),
+      { onBack: () => this.showTitle() },
     );
   }
   private startChallengeRaid(party: HeroClass[]) {
@@ -908,6 +957,8 @@ export class Game {
         monsterHp: 1,
         relics: [],
         tiers: c.shared.tiers,
+        // Schools arrived with rules v5; older links raid by older rules.
+        schools: c.shared.rules >= 5,
       },
     };
     this.beginRaid(setup, c.shared.biome);
@@ -1001,6 +1052,13 @@ export class Game {
       fresh: false,
     }));
     this.hud.setTray(items, this.tool, this.undo.length > 0, digCost(run));
+    this.hud.setSchools(
+      schoolCounts(
+        this.kind === "trial" ? [] : run.layout.objects.map((o) => o.kind),
+        this.kind === "trial" ? [] : run.relics,
+      ),
+      !run.omens?.includes("discord"),
+    );
     const key = run.layout.tiles.join("");
     if (key !== this.pathKey) {
       this.pathKey = key;
@@ -1049,6 +1107,25 @@ export class Game {
       ),
       h("p", {}, def.rule),
       def.combo ? h("p", { class: "combo-hint" }, def.combo) : "",
+      this.kind === "trial"
+        ? ""
+        : h(
+            "p",
+            {
+              class: "school-hint",
+              style: `--sc:${SCHOOLS[PIECE_SCHOOL[id]].color}`,
+            },
+            h("b", {}, SCHOOLS[PIECE_SCHOOL[id]].name),
+            ` school · II: ${SCHOOLS[PIECE_SCHOOL[id]].tiers[0]}`,
+          ),
+      run.aspects?.includes(id)
+        ? h(
+            "p",
+            { class: "aspect-hint" },
+            h("b", {}, `Aspect: ${ASPECTS[id].name}. `),
+            ASPECTS[id].text,
+          )
+        : "",
       this.reinforceButton(id),
       h(
         "p",
@@ -1665,6 +1742,7 @@ export class Game {
             ),
           onHome: () => this.showTitle(),
         }),
+        { onBack: () => this.showTitle() },
       );
       return;
     }
@@ -1721,6 +1799,15 @@ export class Game {
     p.stats.fireKills += result.fireKills;
     p.stats.falls += result.falls;
     p.stats.powerKills += result.powerKills;
+    const renownBefore = p.renown;
+    const progress: Progress = recordNight(
+      p,
+      run,
+      result,
+      stars,
+      run.hoard > 0,
+    );
+    this.progressFeats(result);
     this.nightFeats(run, result, stars, stolen);
     const deadliest = Object.entries(result.kills).sort(
       (a, b) => b[1] - a[1],
@@ -1745,10 +1832,13 @@ export class Game {
     saveRun(run);
     saveProfile(p);
     const feats = this.takeFeats();
-    const unlocked = this.takeUnlocks(feats);
+    // Progress renown (mastery, bestiary, bounties, levels) can open unlocks too.
+    const unlocked = unlocksBetween(renownBefore, p.renown).map((u) => u.label);
     saveProfile(p);
     this.layer.open(
       resultsScreen({
+        progress,
+        archName: ARCHITECTS.find((a) => a.id === run.architect)?.name,
         unlocked,
         night,
         result,
@@ -1801,6 +1891,20 @@ export class Game {
       this.profile.renown - gained,
       this.profile.renown,
     ).map((u) => u.label);
+  }
+  /** Feats for schools, mastery and architect levels. */
+  private progressFeats(result: ReturnType<Raid["result"]>) {
+    const p = this.profile;
+    const lv = SCHOOL_IDS.map((s) => result.schools?.[s] ?? 0);
+    if (lv.some((v) => v >= 2)) this.earn("school4");
+    if (lv.filter((v) => v >= 1).length >= 3) this.earn("schools3");
+    if (SCHOOL_IDS.every((s) => p.schools4.includes(s)))
+      this.earn("schoolsAll4");
+    if (Object.values(p.mastery).some((k) => (k ?? 0) >= 300))
+      this.earn("mythic");
+    const best = Math.max(0, ...ARCHITECTS.map((a) => archLevelOf(p, a.id)));
+    if (best >= 5) this.earn("archLevel5");
+    if (best >= 10) this.earn("archLevel10");
   }
   /** Feats that can be earned by a single night. */
   private nightFeats(
@@ -1985,6 +2089,16 @@ export class Game {
         if (heat >= 8) this.earn("heat8");
         if (heat >= 15) this.earn("heat15");
         if (heat >= 20) this.earn("heat20");
+        if (heat >= 26) this.earn("heat26");
+        const xp = recordWinXp(p, run.architect);
+        out.renown += xp.renown;
+        if (xp.archLevel)
+          this.hud.toast(
+            `${ARCHITECTS.find((a) => a.id === run.architect)?.name} reached level ${xp.archLevel}`,
+            "gold",
+          );
+        if (archLevelOf(p, run.architect) >= 5) this.earn("archLevel5");
+        if (archLevelOf(p, run.architect) >= 10) this.earn("archLevel10");
         const crowns = recordDepthWin(p, run);
         out.crowns = crowns.crowns.filter((c) => c !== "Conquered");
         out.renown += crowns.renown;
@@ -2175,14 +2289,52 @@ export class Game {
         messageScreen("Share", text, [
           ["Close", () => this.layer.close(), "btn primary"],
         ]),
-        { modal: true },
+        { modal: true, onBack: () => this.layer.close() },
       );
     }
   }
 
   // ---------------- menus ----------------
-  private openPause() {
-    if (this.layer.open_count || this.phase === "after") return;
+  /**
+   * The platform back action: Escape, browser back and the Android back
+   * button. Closes the top screen or selection, otherwise opens the pause
+   * menu. Returns false only on the title screen, so the platform may leave.
+   */
+  back(): boolean {
+    switch (this.layer.back()) {
+      case "done":
+        return true;
+      case "pass":
+        return false;
+      case "blocked":
+        // A screen that needs an answer (results, boon, visitor, legend):
+        // offer the pause menu over it so the player can still get out.
+        if (this.kind !== "title") this.openPause(true);
+        return true;
+    }
+    if (this.tool || this.selected !== null || this.power) {
+      this.tool = null;
+      this.power = null;
+      this.select(null);
+      this.refreshBuild();
+      this.updatePowersHud();
+      audio.play("click");
+      return true;
+    }
+    if (this.hud.infoOpen) {
+      this.hud.hideInfo();
+      audio.play("click");
+      return true;
+    }
+    if (this.kind === "title") return false;
+    // Between screens (e.g. the pause after a raid) back does nothing.
+    this.openPause();
+    return true;
+  }
+
+  /** `over`: open on top of a screen that is waiting for an answer. */
+  private openPause(over = false) {
+    if (!over && (this.layer.open_count || this.phase === "after")) return;
     const wasPaused = this.paused;
     if (this.phase === "raid" && !this.paused) this.togglePause();
     const resume = () => {
@@ -2203,9 +2355,12 @@ export class Game {
         onResume: resume,
         onSettings: () => this.openSettings(),
         onShare:
-          this.run && this.phase === "build" ? () => this.shareDungeon() : null,
+          this.run && this.phase === "build" && !over
+            ? () => this.shareDungeon()
+            : null,
+        // A finished run (legend, final results) can no longer be abandoned.
         onAbandon:
-          this.kind === "run" && this.run
+          this.kind === "run" && this.run && this.run.victory === null
             ? () => {
                 this.layer.open(
                   messageScreen(
@@ -2231,7 +2386,7 @@ export class Game {
                       ],
                     ],
                   ),
-                  { modal: true },
+                  { modal: true, onBack: () => this.layer.close() },
                 );
               }
             : null,
@@ -2271,6 +2426,20 @@ export class Game {
         ),
         h("p", {}, d.rule),
         h("p", { class: "combo-hint" }, `Counter: ${HERO_COUNTER[cls]}`),
+        ...[
+          ...new Set(
+            this.party
+              .filter((q) => q.cls === cls)
+              .flatMap((q) => q.affixes ?? []),
+          ),
+        ].map((a) =>
+          h(
+            "p",
+            { class: "affix-hint", style: `--ac:${AFFIXES[a].color}` },
+            h("b", {}, `${AFFIXES[a].name}: `),
+            AFFIXES[a].text,
+          ),
+        ),
       ],
       [],
       debut ? 6000 : 0,
@@ -2485,24 +2654,14 @@ export class Game {
   }
 
   private key(e: KeyboardEvent) {
-    if (e.target instanceof HTMLInputElement) return;
     const k = e.key.toLowerCase();
     if (k === "escape") {
-      if (this.layer.open_count) {
-        this.layer.dismissTop();
-        return;
-      }
-      if (this.tool || this.selected !== null || this.power) {
-        this.tool = null;
-        this.power = null;
-        this.select(null);
-        this.refreshBuild();
-        this.updatePowersHud();
-        return;
-      }
-      if (this.phase !== "title") this.openPause();
+      // Escape works inside text fields too (it cancels the name prompt).
+      // On the title screen it does nothing: only real back buttons leave.
+      if (!e.repeat) this.back();
       return;
     }
+    if (e.target instanceof HTMLInputElement) return;
     if (this.layer.open_count) return;
     if (this.phase === "build") {
       if ((e.ctrlKey || e.metaKey) && k === "z") {
@@ -3321,6 +3480,59 @@ export class Game {
         audio.play("step", { volume: 0.6 });
         break;
       case "attack":
+        break;
+      case "firebomb":
+        audio.play("fire", { pitch: 1.3, volume: 0.6 });
+        this.trail(e.fx, e.fy, e.x, e.y, "#ffb35a", 6);
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.1,
+          size1: 1.2,
+          max: 0.35,
+          color: "rgba(255,140,60,0.9)",
+        });
+        fx.burst(e.x, e.y - 0.1, 16, {
+          color: "#ff8a3a",
+          kind: "spark",
+          size: 0.05,
+          speed: 3,
+          up: 2,
+          max: 0.45,
+          add: true,
+        });
+        break;
+      case "wail":
+        audio.play("shriek", { pitch: 1.25, volume: 0.5 });
+        fx.emit({
+          x: e.x,
+          y: e.y,
+          kind: "ring",
+          size: 0.2,
+          size1: 2.1,
+          max: 0.5,
+          color: "rgba(190,230,255,0.8)",
+        });
+        break;
+      case "ward": {
+        audio.play("magic", { pitch: 0.8 });
+        fx.emit({
+          x: e.x,
+          y: e.y - 0.4,
+          kind: "ring",
+          size: 0.5,
+          size1: 0.9,
+          max: 0.3,
+          color: "rgba(200,216,255,0.9)",
+        });
+        fx.text(e.x, e.y - 0.8, "Ward broken", "#c9d8ff", 0.8);
+        break;
+      }
+      case "seal":
+        audio.play("rockfall", { pitch: 1.2, volume: 0.7 });
+        r.shake(0.35);
+        fx.text(e.x, e.y - 0.8, "Sealed!", "#ffd166", 1);
         break;
       case "bomb":
         audio.play("boulder", { pitch: 1.4 });

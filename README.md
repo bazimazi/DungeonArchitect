@@ -28,10 +28,15 @@ npm run dev        # http://localhost:5173
 - **Descent:** the ten-night run at a chosen depth. Each depth is a named dungeon with its own **floorplan** (cellars, long galleries, forks, pillared halls, labyrinths, rifts, sealed vaults, caverns, mines, throne halls…), champion and twists, and depths get harder without limit. Every five depths form a **realm** whose last depth is guarded by a **realm lord** (Thane Brannoc, Nyx the Shade, the Hollow King, Morrigan the Witch Queen). Earns renown, which unlocks pieces, architects, biomes and powers, and raises your architect rank.
 - **Atlas of the Deep:** every depth you have opened, realm by realm, with three **crowns** to earn on each: Conquered, Flawless (no treasure lost) and Ascendant (won at heat 5+). Pick any open depth to replay it.
 - **Dawn visitors:** some mornings a visitor knocks with an optional deal: a merchant's relic, a goblin smith's half-price upgrade, a cursed shrine, a turncoat who skips tonight's raid, an imp's three-star wager, and more.
-- **Omens:** after your first victory, add any of 13 curses to a descent (tougher heroes, fewer pieces, no powers, a blindfold…). Each omen adds heat, up to 26, and every point of heat adds 10% renown.
+- **Schools:** every piece belongs to one of seven schools (Pyre, Steel, Stone, Grave, Wild, Arcana, Guile). Place two different pieces of a school to awaken its tier II bonus, four for tier IV. The build tray shows which schools are awake.
+- **Armory and aspects:** kills master a piece through four ranks. Rank II unlocks its **aspect**, a sidegrade that changes how it works (Rusted Spikes poison, a Rolling Stone rolls again, Banshees wail, Kobold Bombers throw firebombs…). Equip aspects in the Armory; they apply to new descents.
+- **Elite affixes:** from depth 2, elites carry a visible affix (Swift, Warded, Gilded, Vampiric, Regenerating, Thorned, Steadfast, Salamander). Scout them before you build.
+- **Architect levels:** nights and stars level up each architect to 10. Level 2 opens an alternate starting kit, level 4 adds the architect's signature relic to drafts.
+- **Bounties and bestiary:** three daily bounties pay renown, and every hero class has bestiary marks (with a line of lore) for slaying enough of them.
+- **Omens:** after your first victory, add any of 15 curses to a descent (tougher heroes, fewer pieces, no powers, a blindfold, empowered elites, sleeping schools…). Each omen adds heat, up to 30, and every point of heat adds 10% renown.
 - **Abyss:** after a victory, keep going. Every night is harder, and a champion comes every fifth night. How deep can your dungeon go?
 - **Trials:** 25 handcrafted puzzle dungeons in six chapters. Each has a fixed party, fixed blueprints, a gold budget and no powers. Earn stars for defending, slaying everyone, and doing it under par.
-- **Feats:** 57 long-term goals that pay renown.
+- **Feats:** 74 long-term goals that pay renown.
 - **Daily:** the same seeded run for everyone each UTC day, with a shareable result line.
 - **Workshop:** unlimited gold and every unlocked piece. Test against any night's party and share your dungeon as a link.
 - **Raid links:** opening `#raid=…` lets you assemble a hero party and try to rob a friend's dungeon.
@@ -53,6 +58,8 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rat
   - `sim.ts`: the raid simulation.
   - `run.ts`: depths, nights, the abyss, economy, capacity and drafts.
   - `floorplans.ts`: the map archetype of each depth.
+  - `schools.ts`: schools, aspects and elite affixes (rules v5 data).
+  - `progression.ts`: piece mastery, the bestiary, daily bounties and architect levels.
   - `encounters.ts`: dawn visitors and their offers.
   - `share.ts`: link codec.
   - `trials.ts`: the handcrafted trial dungeons.

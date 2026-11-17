@@ -50,6 +50,8 @@ import {
   type Layout,
 } from "./grid";
 import type { PartyMember, RaidMods, RaidResult } from "./sim";
+import { AFFIXES, AFFIX_IDS, type AffixId } from "./schools";
+import { ALT_KITS } from "./progression";
 import type { Encounter } from "./encounters";
 
 export type Card =
@@ -135,6 +137,12 @@ export interface RunState {
   bribe?: number;
   /** Crowns shown on the last legend screen (stable across reloads). */
   lastCrowns?: string[];
+  /** Mastered aspects in play this descent (rules v5). */
+  aspects?: PieceId[];
+  /** Starting kit: 0 standard, 1 the architect's alternate kit. */
+  kit?: number;
+  /** The architect's signature relic can be drafted. */
+  signature?: boolean;
 }
 
 export const HERO_ARRIVAL: Record<HeroClass, number> = {
@@ -303,7 +311,7 @@ export function heatFor(depth: number, night = NIGHTS) {
   const ramp = deepRamp(night);
   const k = 0.3 + 0.7 * ramp;
   return {
-    hpMul: (depth >= 2 ? 1.15 : 1) * (1 + 0.06 * over * k),
+    hpMul: (depth >= 2 ? 1.2 : 1) * (1 + 0.06 * over * k),
     dmgMul: 1 + 0.04 * over * k,
     partyBonus: (depth >= 3 ? 3 : 0) + 0.65 * over * (0.1 + 0.9 * ramp),
     goldPenalty: depth >= 4 ? 30 : 0,
@@ -343,9 +351,14 @@ export function newRun(opts: {
   daily?: string | null;
   powers: PowerId[];
   omens?: OmenId[];
+  aspects?: PieceId[];
+  kit?: number;
+  signature?: boolean;
 }): RunState {
   const omens = [...new Set(opts.omens ?? [])];
-  const arch = ARCHITECTS.find((a) => a.id === opts.architect) ?? ARCHITECTS[0];
+  const base = ARCHITECTS.find((a) => a.id === opts.architect) ?? ARCHITECTS[0];
+  const kit = opts.kit === 1 ? 1 : 0;
+  const arch = kit ? { ...base, start: ALT_KITS[base.id].start } : base;
   const info = depthInfo(opts.depth);
   const heat = heatFor(info.depth);
   const mutators = info.mutators;
@@ -401,6 +414,9 @@ export function newRun(opts: {
     rerolls: 0,
     omens,
   };
+  if (opts.aspects?.length) run.aspects = [...new Set(opts.aspects)];
+  if (kit) run.kit = kit;
+  if (opts.signature) run.signature = true;
   // A first trap on the starter tunnel so night one teaches itself.
   const spot = firstTunnelTile(layout, 4);
   if (spot) {
@@ -483,7 +499,7 @@ export function raidMods(
     RunState,
     "night" | "depth" | "mutators" | "architect" | "relics" | "tiers"
   > &
-    Partial<Pick<RunState, "omens" | "blight">>,
+    Partial<Pick<RunState, "omens" | "blight" | "aspects">>,
 ): RaidMods {
   const n = run.night;
   const heat = heatFor(run.depth, n);
@@ -512,6 +528,8 @@ export function raidMods(
     relics: run.relics,
     tiers: run.tiers,
     omens: run.omens ?? [],
+    schools: !omen(run, "discord"),
+    aspects: run.aspects ?? [],
   };
 }
 
@@ -673,9 +691,35 @@ function rawParty(
     }
     if (!made) party[0].elite = !isChampion(party[0].cls);
   }
+  rollAffixes(run, n, party);
   // Marching order: front-liners first, healers and casters at the back.
   party.sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
   return party;
+}
+
+/**
+ * Elites carry affixes from depth 2 (and always in the abyss): one each, two
+ * from abyss night 20 or under the Empowered omen, which also gives the
+ * champion one. A separate stream keeps party composition unchanged.
+ */
+function rollAffixes(
+  run: Pick<RunState, "seed" | "depth"> & Partial<Pick<RunState, "omens">>,
+  n: number,
+  party: PartyMember[],
+) {
+  const abyss = n > NIGHTS;
+  if (!abyss && run.depth < 2) return;
+  const pool = AFFIX_IDS.filter((a) => abyss || AFFIXES[a].from <= run.depth);
+  if (!pool.length) return;
+  const rng = new Rng((run.seed ^ Math.imul(n, 0x51a3c9e7) ^ 0xaff1) >>> 0);
+  const empowered = omen(run, "empowered");
+  const per = empowered || n >= 20 ? 2 : 1;
+  const pickN = (k: number) =>
+    rng.shuffle([...pool]).slice(0, Math.min(k, pool.length)) as AffixId[];
+  for (const p of party) {
+    if (p.elite) p.affixes = pickN(per);
+    else if (empowered && isChampion(p.cls)) p.affixes = pickN(1);
+  }
 }
 
 export function starsFor(r: RaidResult, stolenThisNight: number) {
@@ -730,7 +774,9 @@ export function draftFor(
     (p) => p !== "lure" && (run.tiers[p] ?? 1) < DRAFT_TIER_MAX,
   );
   const relics = (Object.keys(RELICS) as RelicId[]).filter(
-    (r) => !run.relics.includes(r),
+    (r) =>
+      !run.relics.includes(r) &&
+      (!RELICS[r].arch || (run.signature && RELICS[r].arch === run.architect)),
   );
   const pickRelic = () => {
     let total = 0;
@@ -754,7 +800,8 @@ export function draftFor(
     if (roll < 0.5 && pool.length) add({ type: "piece", id: rng.pick(pool) });
     else if (tierable.length) add({ type: "tier", id: rng.pick(tierable) });
   }
-  const size = omen(run, "meager") ? 2 : 3;
+  const size =
+    (omen(run, "meager") ? 2 : 3) + (run.relics.includes("loadedDice") ? 1 : 0);
   for (let i = 0; i < 8 && cards.length < size; i++) {
     const roll = rng.next();
     if (roll < 0.6 && relics.length) add({ type: "relic", id: pickRelic() });
@@ -929,14 +976,16 @@ export const runTitle = (run: Pick<RunState, "depth">) =>
 export const DRAFT_TIER_MAX = 3;
 export const TIER_MAX = 5;
 export function reinforceCost(
-  run: Pick<RunState, "architect" | "tiers">,
+  run: Pick<RunState, "architect" | "tiers"> &
+    Partial<Pick<RunState, "relics">>,
   id: PieceId,
 ) {
   // Bait chests have no power to raise.
   if (id === "lure") return null;
   const tier = run.tiers[id] ?? 1;
   if (tier >= TIER_MAX) return null;
-  return Math.round(pieceCost(run, id) * TUNE.reinforce * tier);
+  const square = run.relics?.includes("masterTools") ? 0.7 : 1;
+  return Math.round(pieceCost(run, id) * TUNE.reinforce * tier * square);
 }
 export function reinforce(run: RunState, id: PieceId) {
   const c = reinforceCost(run, id);

@@ -19,6 +19,7 @@ import {
 } from "../game/defs";
 import { tileAt, walkable, type Layout, type Placed } from "../game/grid";
 import type { Hero, Monster, Raid, TrapState } from "../game/sim";
+import { AFFIXES } from "../game/schools";
 import { Fx } from "./fx";
 import {
   drawHero,
@@ -1141,6 +1142,28 @@ export class Renderer {
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = 0.25 + Math.sin(time * 4) * 0.1;
       ctx.drawImage(this.lightSprite("#ffd166"), -0.6, -1.2, 1.2, 1.3);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 1;
+    }
+    // Affixed heroes wear a slowly turning halo in their affix colours.
+    if (h.affixes?.length && h.st.veil <= 0) {
+      const n = h.affixes.length;
+      ctx.lineWidth = 0.035;
+      for (let i = 0; i < n; i++) {
+        const a0 = time * 1.6 + (i * Math.PI * 2) / n;
+        ctx.strokeStyle = AFFIXES[h.affixes[i]].color;
+        ctx.globalAlpha = 0.75;
+        ctx.beginPath();
+        ctx.ellipse(0, -0.02, 0.36, 0.14, 0, a0, a0 + (Math.PI * 2) / n - 0.35);
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+    // A ward shimmers around its bearer until it breaks.
+    if (h.ward > 0) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.16 + Math.sin(time * 5) * 0.05;
+      ctx.drawImage(this.lightSprite("#c9d8ff"), -0.55, -1.15, 1.1, 1.25);
       ctx.globalCompositeOperation = "source-over";
       ctx.globalAlpha = 1;
     }

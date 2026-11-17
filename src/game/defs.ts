@@ -2,9 +2,9 @@
  * Game data. All tuning lives here so balance changes never touch systems.
  * Time values are in seconds; distances in tiles.
  */
-export const RULES_VERSION = 4;
+export const RULES_VERSION = 5;
 /** Older link versions that still decode (pieces only ever get appended). */
-export const RULES_COMPAT = [1, 2, 3, 4];
+export const RULES_COMPAT = [1, 2, 3, 4, 5];
 export const TICK = 0.05; // 20 simulation ticks per second
 export const MAP_W = 11;
 export const MAP_H = 15;
@@ -1187,13 +1187,29 @@ export type RelicId =
   | "keys"
   | "haunted"
   | "ironJaws"
-  | "thornCrown";
+  | "thornCrown"
+  | "sigilPyre"
+  | "sigilSteel"
+  | "sigilStone"
+  | "sigilGrave"
+  | "sigilWild"
+  | "sigilArcana"
+  | "sigilGuile"
+  | "masterTools"
+  | "loadedDice"
+  | "soulJar"
+  | "alphaHowl"
+  | "flask"
+  | "clockwork"
+  | "vaultSeal";
 export interface RelicDef {
   id: RelicId;
   name: string;
   text: string;
   icon: string;
   rarity: "common" | "rare" | "legendary";
+  /** Signature relic: only offered to this architect, from mastery level 4. */
+  arch?: ArchitectId;
 }
 export const RELICS: Record<RelicId, RelicDef> = {
   bloodMoney: {
@@ -1482,6 +1498,111 @@ export const RELICS: Record<RelicId, RelicDef> = {
     text: "Heroes who loot your hoard take 40 damage.",
     icon: "chest",
     rarity: "legendary",
+  },
+  sigilPyre: {
+    id: "sigilPyre",
+    name: "Pyre Sigil",
+    text: "Your Pyre school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  sigilSteel: {
+    id: "sigilSteel",
+    name: "Steel Sigil",
+    text: "Your Steel school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  sigilStone: {
+    id: "sigilStone",
+    name: "Stone Sigil",
+    text: "Your Stone school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  sigilGrave: {
+    id: "sigilGrave",
+    name: "Grave Sigil",
+    text: "Your Grave school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  sigilWild: {
+    id: "sigilWild",
+    name: "Wild Sigil",
+    text: "Your Wild school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  sigilArcana: {
+    id: "sigilArcana",
+    name: "Arcane Sigil",
+    text: "Your Arcana school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  sigilGuile: {
+    id: "sigilGuile",
+    name: "Guile Sigil",
+    text: "Your Guile school counts one more piece.",
+    icon: "relic",
+    rarity: "rare",
+  },
+  masterTools: {
+    id: "masterTools",
+    name: "Mason's Square",
+    text: "Reinforcing costs 30% less.",
+    icon: "hammer",
+    rarity: "rare",
+    arch: "mason",
+  },
+  loadedDice: {
+    id: "loadedDice",
+    name: "Loaded Dice",
+    text: "Boon drafts offer one more card.",
+    icon: "reroll",
+    rarity: "rare",
+    arch: "trickster",
+  },
+  soulJar: {
+    id: "soulJar",
+    name: "Soul Jar",
+    text: "Every hero slain gives 2 more dread.",
+    icon: "skull",
+    rarity: "rare",
+    arch: "lich",
+  },
+  alphaHowl: {
+    id: "alphaHowl",
+    name: "Alpha's Howl",
+    text: "Monsters below half health hit 35% harder.",
+    icon: "banner",
+    rarity: "rare",
+    arch: "beastmaster",
+  },
+  flask: {
+    id: "flask",
+    name: "Philosopher's Flask",
+    text: "Burning heroes are poisoned too.",
+    icon: "curse",
+    rarity: "rare",
+    arch: "alchemist",
+  },
+  clockwork: {
+    id: "clockwork",
+    name: "Clockwork Heart",
+    text: "Disarmed, bombed and smashed traps repair themselves after 8s.",
+    icon: "gear",
+    rarity: "rare",
+    arch: "tinkerer",
+  },
+  vaultSeal: {
+    id: "vaultSeal",
+    name: "Vault Seal",
+    text: "Each night, the first hero to reach your hoard takes 60 damage and is held for 2s.",
+    icon: "chest",
+    rarity: "rare",
+    arch: "warden",
   },
 };
 
@@ -2068,7 +2189,9 @@ export type OmenId =
   | "wrath"
   | "teeming"
   | "blind"
-  | "tempered";
+  | "tempered"
+  | "empowered"
+  | "discord";
 export interface OmenDef {
   id: OmenId;
   name: string;
@@ -2154,6 +2277,18 @@ export const OMENS: Record<OmenId, OmenDef> = {
     text: "Heroes wear +1 armor.",
     heat: 2,
   },
+  empowered: {
+    id: "empowered",
+    name: "Empowered",
+    text: "Elites carry two affixes, and champions carry one.",
+    heat: 2,
+  },
+  discord: {
+    id: "discord",
+    name: "Discord",
+    text: "Your schools never awaken.",
+    heat: 2,
+  },
 };
 export const OMEN_IDS = Object.keys(OMENS) as OmenId[];
 export const heatOf = (omens: readonly OmenId[]) =>
@@ -2165,7 +2300,7 @@ export const heatRenown = (heat: number) => 1 + heat * 0.1;
 export const DEPTH_HEAT = [
   "",
   "",
-  "Heroes have 15% more health.",
+  "Heroes have 20% more health.",
   "Parties are larger.",
   "Start with 30 less gold.",
   "Elite heroes appear more often.",
@@ -2243,7 +2378,12 @@ export type StatId =
   | "trialStars"
   | "abyssNights"
   | "encounters"
-  | "crowns";
+  | "crowns"
+  | "aspects"
+  | "bestiary"
+  | "affixKills"
+  | "contracts"
+  | "schoolKills";
 export interface FeatDef {
   id: string;
   name: string;
@@ -2604,5 +2744,128 @@ export const FEATS: FeatDef[] = [
     renown: 8,
     stat: "encounters",
     goal: 15,
+  },
+  // Rules v5: schools, mastery, affixes, bounties, bestiary, architect levels.
+  {
+    id: "school4",
+    name: "Headmaster",
+    text: "Awaken a school's fourth tier in a raid.",
+    renown: 6,
+  },
+  {
+    id: "schools3",
+    name: "Polymath",
+    text: "Raid with three schools awakened at once.",
+    renown: 10,
+  },
+  {
+    id: "schoolsAll4",
+    name: "Grand Curriculum",
+    text: "Awaken the fourth tier of every school (across any runs).",
+    renown: 30,
+  },
+  {
+    id: "schoolKills500",
+    name: "Scholar of Slaughter",
+    text: "Slay 500 heroes with pieces of awakened schools.",
+    renown: 15,
+    stat: "schoolKills",
+    goal: 500,
+  },
+  {
+    id: "aspect1",
+    name: "Journeyman",
+    text: "Unlock your first aspect.",
+    renown: 4,
+    stat: "aspects",
+    goal: 1,
+  },
+  {
+    id: "aspects10",
+    name: "Armorer",
+    text: "Unlock 10 aspects.",
+    renown: 15,
+    stat: "aspects",
+    goal: 10,
+  },
+  {
+    id: "aspectsAll",
+    name: "Living Arsenal",
+    text: "Unlock every aspect.",
+    renown: 50,
+    stat: "aspects",
+    goal: 32,
+  },
+  {
+    id: "mythic",
+    name: "Mythic Craft",
+    text: "Reach mastery rank IV with any piece.",
+    renown: 15,
+  },
+  {
+    id: "affix25",
+    name: "Wardbreaker",
+    text: "Slay 25 heroes carrying affixes.",
+    renown: 8,
+    stat: "affixKills",
+    goal: 25,
+  },
+  {
+    id: "affix150",
+    name: "Bane of the Blessed",
+    text: "Slay 150 heroes carrying affixes.",
+    renown: 25,
+    stat: "affixKills",
+    goal: 150,
+  },
+  {
+    id: "contracts10",
+    name: "Bounty Hunter",
+    text: "Complete 10 bounties.",
+    renown: 8,
+    stat: "contracts",
+    goal: 10,
+  },
+  {
+    id: "contracts60",
+    name: "Guild Favourite",
+    text: "Complete 60 bounties.",
+    renown: 30,
+    stat: "contracts",
+    goal: 60,
+  },
+  {
+    id: "bestiary20",
+    name: "Bestiarist",
+    text: "Earn 20 bestiary marks.",
+    renown: 10,
+    stat: "bestiary",
+    goal: 20,
+  },
+  {
+    id: "bestiary50",
+    name: "Monster of Monsters",
+    text: "Earn 50 bestiary marks.",
+    renown: 30,
+    stat: "bestiary",
+    goal: 50,
+  },
+  {
+    id: "archLevel5",
+    name: "Devoted Architect",
+    text: "Reach level 5 with an architect.",
+    renown: 8,
+  },
+  {
+    id: "archLevel10",
+    name: "Paragon",
+    text: "Reach level 10 with an architect.",
+    renown: 25,
+  },
+  {
+    id: "heat26",
+    name: "Doom Incarnate",
+    text: "Win a descent at heat 26 or more.",
+    renown: 120,
   },
 ];
