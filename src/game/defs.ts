@@ -2390,7 +2390,13 @@ export type StatId =
   | "infamy"
   | "heirlooms"
   | "legendaries"
-  | "wells";
+  | "wells"
+  | "nemeses"
+  | "trophies"
+  | "expeditions"
+  | "awaken"
+  | "rekindles"
+  | "veterans";
 export interface FeatDef {
   id: string;
   name: string;
@@ -3043,5 +3049,168 @@ export const FEATS: FeatDef[] = [
     name: "Perfect Temper",
     text: "Temper a legendary heirloom to +10.",
     renown: 20,
+  },
+  // Rules v7: nemeses, sieges, expeditions, awakening and the Ember Throne.
+  {
+    id: "nemesis1",
+    name: "Old Grudges",
+    text: "Slay a nemesis.",
+    renown: 5,
+    stat: "nemeses",
+    goal: 1,
+  },
+  {
+    id: "nemesis10",
+    name: "Settling Scores",
+    text: "Slay 10 nemeses.",
+    renown: 10,
+    stat: "nemeses",
+    goal: 10,
+  },
+  {
+    id: "nemesis50",
+    name: "Rogues' Bane",
+    text: "Slay 50 nemeses.",
+    renown: 25,
+    stat: "nemeses",
+    goal: 50,
+  },
+  {
+    id: "nemesisLv5",
+    name: "Arch-Nemesis",
+    text: "Slay a nemesis of level 5 or higher.",
+    renown: 10,
+  },
+  {
+    id: "nemesisLv10",
+    name: "The One That Didn't Get Away",
+    text: "Slay a nemesis of level 10 or higher.",
+    renown: 20,
+  },
+  {
+    id: "siege1",
+    name: "Besieger",
+    text: "Clear a siege.",
+    renown: 5,
+    stat: "trophies",
+    goal: 1,
+  },
+  {
+    id: "trophies10",
+    name: "Trophy Hunter",
+    text: "Clear 10 siege levels in all.",
+    renown: 10,
+    stat: "trophies",
+    goal: 10,
+  },
+  {
+    id: "trophies40",
+    name: "Hall of Trophies",
+    text: "Clear 40 siege levels in all.",
+    renown: 20,
+    stat: "trophies",
+    goal: 40,
+  },
+  {
+    id: "trophies100",
+    name: "Wall of Skulls",
+    text: "Clear 100 siege levels in all.",
+    renown: 40,
+    stat: "trophies",
+    goal: 100,
+  },
+  {
+    id: "siege10",
+    name: "Siegebreaker",
+    text: "Clear siege level 10 against any champion.",
+    renown: 15,
+  },
+  {
+    id: "siegeAll",
+    name: "Every Crown Humbled",
+    text: "Clear a siege against all seven champions and lords.",
+    renown: 15,
+  },
+  {
+    id: "siege3star",
+    name: "Total Siege",
+    text: "Earn three stars on a siege of level 5 or higher.",
+    renown: 10,
+  },
+  {
+    id: "expeditions10",
+    name: "Warmonger",
+    text: "Bring 10 expeditions home.",
+    renown: 5,
+    stat: "expeditions",
+    goal: 10,
+  },
+  {
+    id: "expeditions100",
+    name: "Scourge of the Surface",
+    text: "Bring 100 expeditions home.",
+    renown: 20,
+    stat: "expeditions",
+    goal: 100,
+  },
+  {
+    id: "awaken10",
+    name: "Awakened",
+    text: "Awaken an heirloom to level 10.",
+    renown: 10,
+    stat: "awaken",
+    goal: 10,
+  },
+  {
+    id: "awaken30",
+    name: "Living Relic",
+    text: "Awaken an heirloom to level 30.",
+    renown: 25,
+    stat: "awaken",
+    goal: 30,
+  },
+  {
+    id: "reforged",
+    name: "Reforged",
+    text: "Reforge an affix on an heirloom.",
+    renown: 3,
+  },
+  {
+    id: "rekindle1",
+    name: "From the Ashes",
+    text: "Rekindle the Dungeon Heart.",
+    renown: 10,
+    stat: "rekindles",
+    goal: 1,
+  },
+  {
+    id: "rekindle5",
+    name: "Phoenix Heart",
+    text: "Rekindle the Dungeon Heart five times.",
+    renown: 25,
+    stat: "rekindles",
+    goal: 5,
+  },
+  {
+    id: "flame10",
+    name: "Eternal Flame",
+    text: "Raise an Eternal Flame to level 10.",
+    renown: 15,
+  },
+  {
+    id: "veteran1",
+    name: "Living Legend",
+    text: "Raise a blueprint to Legendary veterancy in one descent.",
+    renown: 10,
+    stat: "veterans",
+    goal: 1,
+  },
+  {
+    id: "veteran25",
+    name: "Hall of Veterans",
+    text: "Raise 25 blueprints to Legendary veterancy.",
+    renown: 20,
+    stat: "veterans",
+    goal: 25,
   },
 ];

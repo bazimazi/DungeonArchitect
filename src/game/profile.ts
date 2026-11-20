@@ -41,7 +41,11 @@ import type { RaidResult } from "./sim";
 import type { HeroClass } from "./defs";
 import {
   SOULS,
+  awakeGain,
+  awakeLevel,
+  awakenEquipped,
   defaultMeta,
+  earnMul,
   forgeLevels,
   heartLevels,
   heirloomDrop,
@@ -50,11 +54,22 @@ import {
   metaBonus,
   nightInfamy,
   nightSouls,
+  rollHeirloom,
+  trophyTotal,
   winInfamy,
   winSouls,
   type Heirloom,
   type MetaProfile,
 } from "./meta";
+import {
+  nemesisBounty,
+  settleNemeses,
+  type Nemesis,
+  type NemesisOutcome,
+  type Vanquished,
+} from "./nemesis";
+import type { Expedition } from "./expeditions";
+import { Rng, hashString } from "../engine/math";
 
 export interface Settings {
   sfx: number;
@@ -117,6 +132,17 @@ export interface Profile extends MetaProfile {
   schools4: SchoolId[];
   /** Architect picked for the last descent (pre-selected on setup). */
   lastArch?: ArchitectId;
+  /** Rules v7: the Rogues' Gallery of heroes who got away. */
+  nemeses: Nemesis[];
+  nextNemesis: number;
+  /** Nemeses slain, most recent first. */
+  vanquished: Vanquished[];
+  /** War parties on the surface. */
+  expeditions: Expedition[];
+  expSeed: number;
+  nextExpedition: number;
+  /** Best stars per siege level, keyed "boss:level". */
+  sieges: Record<string, number>;
 }
 
 /** What a player has achieved on one depth. */
@@ -200,6 +226,12 @@ export function defaultProfile(): Profile {
       heirlooms: 0,
       legendaries: 0,
       wells: 0,
+      nemeses: 0,
+      trophies: 0,
+      expeditions: 0,
+      awaken: 0,
+      rekindles: 0,
+      veterans: 0,
     },
     feats: [],
     archWins: [],
@@ -225,6 +257,13 @@ export function defaultProfile(): Profile {
     kits: {},
     schools4: [],
     ...defaultMeta(),
+    nemeses: [],
+    nextNemesis: 1,
+    vanquished: [],
+    expeditions: [],
+    expSeed: 1,
+    nextExpedition: 1,
+    sieges: {},
   };
 }
 
@@ -292,7 +331,27 @@ export function migrateProfile(raw: unknown): Profile {
     equipped: Array.isArray(p.equipped) ? p.equipped : [],
     nextItem: Math.max(1, num(p.nextItem)),
     wellAt: num(p.wellAt),
+    // Rules v7.
+    embers: num(p.embers),
+    rekindles: num(p.rekindles),
+    flames: obj(p.flames),
+    trophies: obj(p.trophies),
+    nemeses: list(p.nemeses),
+    nextNemesis: Math.max(1, num(p.nextNemesis)),
+    vanquished: list(p.vanquished),
+    expeditions: list(p.expeditions),
+    expSeed: Math.max(1, num(p.expSeed)),
+    nextExpedition: Math.max(1, num(p.nextExpedition)),
+    sieges: obj(p.sieges),
   };
+  out.nextNemesis = Math.max(
+    out.nextNemesis,
+    1 + out.nemeses.reduce((a, x) => Math.max(a, x.id ?? 0), 0),
+  );
+  out.nextExpedition = Math.max(
+    out.nextExpedition,
+    1 + out.expeditions.reduce((a, x) => Math.max(a, x.id ?? 0), 0),
+  );
   out.nextItem = Math.max(
     out.nextItem,
     1 + out.heirlooms.reduce((a, x) => Math.max(a, x.id ?? 0), 0),
@@ -342,12 +401,20 @@ export function migrateProfile(raw: unknown): Profile {
 }
 const num = (v: unknown) =>
   typeof v === "number" && Number.isFinite(v) ? v : 0;
+const list = <T>(v: T[] | undefined): T[] =>
+  Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : [];
 
 /** Counters behind the Sanctum feats. */
 export function syncMetaStats(p: Profile) {
   p.stats.heart = heartLevels(p);
   p.stats.forge = forgeLevels(p);
   p.stats.infamy = infamyLevel(p.infamyXp).level;
+  p.stats.trophies = trophyTotal(p);
+  p.stats.rekindles = p.rekindles;
+  p.stats.awaken = Math.max(
+    p.stats.awaken ?? 0,
+    ...p.heirlooms.map((x) => awakeLevel(x.awake).level),
+  );
 }
 
 // ---------- Rules v5 progression ----------
@@ -401,6 +468,14 @@ export interface Progress {
   heirloom: Heirloom | null;
   /** Souls from an heirloom salvaged because the vault was full. */
   salvaged: number;
+  /** Rules v7: what happened with the Rogues' Gallery tonight. */
+  nemesis?: NemesisOutcome | null;
+  /** Heirlooms that reached a new awakening level. */
+  awakened?: Heirloom[];
+  /** Spoils dropped by slain nemeses. */
+  trophies?: Heirloom[];
+  /** Blueprints promoted in veterancy tonight: [piece, rank]. */
+  veterancy?: [PieceId, number][];
 }
 export const noProgress = (): Progress => ({
   renown: 0,
@@ -434,6 +509,21 @@ function addInfamy(p: Profile, xp: number, out: Progress) {
   p.stats.infamy = after;
 }
 
+/** Infamy from outside a raid night (sieges, expeditions). */
+export function grantInfamy(p: Profile, xp: number) {
+  const out = noProgress();
+  addInfamy(p, Math.round(xp), out);
+  return out.infamyLevel;
+}
+/** Keep an heirloom found outside a night; returns souls if salvaged. */
+export function grantHeirloom(p: Profile, it: Heirloom) {
+  p.stats.heirlooms++;
+  if (it.rarity >= 4) p.stats.legendaries++;
+  const sold = keepHeirloom(p, it);
+  if (sold) p.stats.souls += sold;
+  return sold;
+}
+
 /** Architect XP: a level pays renown. */
 function addXp(p: Profile, a: ArchitectId, xp: number, out: Progress) {
   const before = archLevel(p.archXp[a] ?? 0).level;
@@ -453,7 +543,17 @@ export function recordNight(
   p: Profile,
   run: Pick<RunState, "architect"> &
     Partial<
-      Pick<RunState, "depth" | "omens" | "seed" | "night" | "daily" | "endless">
+      Pick<
+        RunState,
+        | "depth"
+        | "omens"
+        | "seed"
+        | "night"
+        | "daily"
+        | "endless"
+        | "nemeses"
+        | "pure"
+      >
     >,
   r: RaidResult,
   stars: number,
@@ -530,7 +630,6 @@ export function recordNight(
       out.souls += addSouls(p, winSouls(ctx, bonus.souls ?? 0));
       xp += winInfamy(ctx, bonus.infamy ?? 0);
     }
-    addInfamy(p, xp, out);
     // Heirlooms turn up in campaign descents (not dailies).
     if (!run.daily && run.seed !== undefined && survived) {
       const it = heirloomDrop(
@@ -552,6 +651,54 @@ export function recordNight(
         out.salvaged = keepHeirloom(p, it);
         if (out.salvaged) p.stats.souls += out.salvaged;
       }
+    }
+    // Rules v7: the Rogues' Gallery (campaign descents only).
+    if (!run.daily && run.seed !== undefined) {
+      const o = settleNemeses(
+        p,
+        {
+          seed: run.seed,
+          night: run.night,
+          depth: run.depth,
+          nemeses: run.nemeses,
+        },
+        {
+          slain: r.slain ?? [],
+          survived: r.survived ?? [],
+          thieves: r.thieves ?? [],
+        },
+      );
+      if (o.born || o.slain.length || o.grew.length) out.nemesis = o;
+      const mul = earnMul(ctx);
+      for (const x of o.slain) {
+        const b = nemesisBounty(x.level);
+        out.souls += addSouls(
+          p,
+          Math.round(b.souls * mul * (1 + (bonus.souls ?? 0))),
+        );
+        xp += Math.round(b.infamy * mul * (1 + (bonus.infamy ?? 0)));
+        p.stats.nemeses++;
+        const it = rollHeirloom(
+          new Rng(hashString(`nemesis-spoils:${run.seed}:${x.id}`)),
+          p.nextItem++,
+          run.depth + 2 * x.level,
+          x.level >= 5 ? 2 : 1,
+        );
+        p.stats.heirlooms++;
+        if (it.rarity >= 4) p.stats.legendaries++;
+        (out.trophies ??= []).push(it);
+        const sold = keepHeirloom(p, it);
+        if (sold) {
+          out.salvaged += sold;
+          p.stats.souls += sold;
+        }
+      }
+    }
+    addInfamy(p, xp, out);
+    // Equipped heirlooms awaken as they serve (not in sealed descents).
+    if (!run.daily && !run.pure && survived) {
+      const up = awakenEquipped(p, awakeGain(stars, won));
+      if (up.length) out.awakened = up;
     }
   }
   if (survived) addXp(p, run.architect, nightXp(stars), out);

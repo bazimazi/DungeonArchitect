@@ -3995,3 +3995,300 @@ body.paused .hud[data-mode="raid"]::after {
       0 0 22px rgba(185, 140, 255, 0.55);
   }
 }
+
+/* ---------------- Rules v7 ---------------- */
+/* Veterancy chevrons on the build tray */
+.piece .vet {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font: 900 8px/10px var(--ui);
+  letter-spacing: -1px;
+  color: #9fe0a0;
+  text-shadow: 0 1px 2px #000;
+}
+.piece .vet.v3 {
+  color: var(--gold);
+}
+.piece .vet.v4 {
+  color: #ff9a55;
+}
+/* Nemeses in the roster */
+.hero-chip.nemesis {
+  border-color: #ff3d5a;
+  box-shadow: 0 0 14px rgba(255, 61, 90, 0.6);
+  animation: nemesis-pulse 1.6s ease-in-out infinite;
+}
+@keyframes nemesis-pulse {
+  50% {
+    box-shadow: 0 0 20px rgba(255, 61, 90, 0.85);
+  }
+}
+.hero-chip .nem-lv {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 3px;
+  border-radius: 9px;
+  background: #ff3d5a;
+  color: #fff;
+  font: 900 10px/17px var(--ui);
+  text-align: center;
+}
+.nemesis-hint {
+  color: #ff8a9a;
+}
+.nemesis-row b {
+  color: #ff8a9a;
+}
+.nemesis-row.slain b {
+  color: var(--good);
+}
+/* Heirloom awakening, talents and reforging */
+.hd-affixes li {
+  margin: 2px 0;
+}
+.hd-affixes li > span {
+  margin-right: 6px;
+}
+.hd-affixes .talent {
+  color: var(--gold);
+}
+.hd-affixes .reforge {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 1px 6px;
+  border-radius: 7px;
+  background: #1d1527;
+  border: 1px solid #3a2b52;
+  color: var(--muted);
+  font-size: 11px;
+  vertical-align: middle;
+}
+.hd-affixes .reforge:disabled {
+  opacity: 0.4;
+}
+.awaken {
+  margin: 8px 0;
+  padding: 8px;
+  border-radius: 10px;
+  background: #1a1322;
+  border: 1px solid #2c2240;
+}
+.awaken .bar {
+  margin: 4px 0;
+}
+.awaken .forge-rows {
+  margin-top: 6px;
+}
+/* Expeditions */
+.exp-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.exp-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px;
+  border-radius: 12px;
+  background: #1a1322;
+  border: 1.5px solid #3a2b52;
+}
+.exp-card > b {
+  font: 900 14px var(--display);
+}
+.exp-card.away {
+  border-color: #5a4a7a;
+}
+.exp-card.ready {
+  border-color: var(--gold);
+  box-shadow: 0 0 10px rgba(255, 209, 102, 0.3);
+}
+.exp-card .btn {
+  align-self: flex-start;
+}
+.exp-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.exp-meta .spoil {
+  color: var(--soul, #b98cff);
+  text-align: right;
+}
+.exp-meta .spoil.sp-heirloom {
+  color: var(--gold);
+}
+.exp-meta .spoil.sp-embers {
+  color: #ff9a55;
+}
+.exp-leaders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 8px;
+}
+.chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 6px 2px 2px;
+  border-radius: 9px;
+  background: #120d18;
+  border: 1.5px solid #2c2240;
+  color: var(--muted);
+  font-size: 11px;
+}
+.chip-btn.on {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+/* The Ember Throne */
+.ember-purse {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.ember-purse > div {
+  padding: 8px;
+  border-radius: 12px;
+  background: #1c1010;
+  border: 1.5px solid #5a2a1a;
+  text-align: center;
+}
+.ember-purse b {
+  display: block;
+  font: 900 20px var(--display);
+  color: #ff9a55;
+}
+.ember-purse small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.heart-card.flame {
+  border-color: #5a2a1a;
+  background: linear-gradient(#21140f, #1a1012);
+}
+/* Sieges */
+.sieges,
+.rivals {
+  width: min(820px, 100%);
+  max-height: 100%;
+  overflow-y: auto;
+}
+.siege-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 8px;
+}
+.siege-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 14px;
+  background: linear-gradient(#24172f, #140c1b);
+  border: 1.5px solid #6a3a3a;
+}
+.siege-card.locked {
+  opacity: 0.45;
+  border-color: #3a2b52;
+}
+.siege-card .arm-head b {
+  font: 900 15px var(--display);
+}
+.siege-body {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.siege-body .btn {
+  align-self: flex-start;
+}
+.siege-level {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  text-align: center;
+}
+.siege-level b {
+  display: block;
+  font: 900 16px var(--display);
+  color: var(--gold);
+}
+.siege-level small {
+  color: var(--muted);
+  font-size: 11px;
+}
+.title-menu .row2 > .siege-tile:nth-child(odd) {
+  grid-column: 1 / -1;
+  min-height: 56px;
+}
+.siege-tile {
+  border-color: #8a3a3a;
+}
+.results .gain.souls {
+  color: #b98cff;
+}
+/* Rogues' Gallery */
+.rival-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.rival-card {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px;
+  border-radius: 12px;
+  background: #1c1218;
+  border: 1.5px solid #6a2a3a;
+}
+.rival-card b {
+  display: block;
+  font: 900 15px var(--display);
+  color: #ff8a9a;
+}
+.rival-card small {
+  display: block;
+  font-size: 11.5px;
+  line-height: 1.3;
+}
+.affix-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.affix-tag {
+  padding: 1px 6px;
+  border-radius: 7px;
+  border: 1px solid var(--ac);
+  color: var(--ac);
+  font-size: 10.5px;
+}
+.row3 .rivals-btn {
+  color: #ff8a9a;
+}
+@media (max-width: 640px) {
+  .ember-purse {
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 4px;
+  }
+  .ember-purse b {
+    font-size: 16px;
+  }
+}

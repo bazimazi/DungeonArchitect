@@ -48,10 +48,30 @@ import {
   recordNight,
   recordWinXp,
   addSouls,
+  grantHeirloom,
+  grantInfamy,
   syncMetaStats,
   type Progress,
 } from "./game/profile";
 import { SIGNATURE_LEVEL } from "./game/progression";
+import { readyCount } from "./game/expeditions";
+import {
+  SIEGE_BOSSES,
+  TUNE_SIEGE,
+  siegeDef,
+  siegeLayout,
+  siegeMods,
+  siegeReward,
+  siegeStars,
+  type SiegeDef,
+} from "./game/sieges";
+import {
+  rivalsScreen,
+  siegeBriefScreen,
+  siegeResultScreen,
+  siegesScreen,
+} from "./ui/sieges";
+import { NEM_DMG, NEM_HP, nemesisRank, scheduleNemeses } from "./game/nemesis";
 import {
   AFFIXES,
   ASPECTS,
@@ -69,6 +89,8 @@ import {
   wellAmount,
   RARITIES,
   heirloomName,
+  rollHeirloom,
+  type Heirloom,
 } from "./game/meta";
 import {
   allPlansWon,
@@ -105,6 +127,8 @@ import {
   isChampionNight,
   isEliteNight,
   newRun,
+  creditVeterancy,
+  vetRank,
   partyFor,
   pieceCost,
   place,
@@ -296,6 +320,8 @@ export class Game {
   private workshopNight = 3;
   /** Trial being played, and its layout as last built (kept between tries). */
   private trial: TrialDef | null = null;
+  /** A siege being played (rules v7; it borrows the trial flow). */
+  private siege: SiegeDef | null = null;
   private raidToasts = new Set<string>();
   /** Warning for the next build phase: diggers shortened the route. */
   private tunnelNote: string | null = null;
@@ -445,6 +471,7 @@ export class Game {
     this.phase = "title";
     this.raid = null;
     this.challenge = null;
+    this.siege = null;
     this.hud.setMode("hidden");
     this.hud.coach(null);
     this.nightTarget = 0.7;
@@ -525,6 +552,8 @@ export class Game {
           this.sanctumFeats();
           this.toastFeats();
         },
+        onFeat: (id) => this.earn(id),
+        onToast: (text) => this.hud.toast(text, "gold"),
         onClose: () => {
           this.layer.close();
           this.refreshTitle();
@@ -567,6 +596,9 @@ export class Game {
       onSanctum: () => this.openSanctum(),
       well: this.wellReady(),
       onWell: () => this.drawWell(),
+      onSieges: () => this.openSieges(),
+      onRivals: () => this.openRivals(),
+      expeditionsReady: readyCount(this.profile, Date.now()),
     };
   }
   private openArmory() {
@@ -734,6 +766,8 @@ export class Game {
         meta: o.pure ? null : metaBonus(p),
         pool: unlockedPieces(p),
         pure: !!o.pure,
+        // Rules v7: the gallery's most dangerous thieves come back.
+        nemeses: scheduleNemeses(p.nemeses, seed, o.depth),
       });
       this.profile.pure = !!o.pure;
       this.profile.omens = [...(o.omens ?? [])];
@@ -905,6 +939,7 @@ export class Game {
     run.mutators = [];
     run.hoard = run.hoardMax = t.hoard ?? 12;
     run.trial = t.id;
+    this.siege = null;
     run.cap = t.cap;
     run.noDig = t.dig === false;
     run.locked = run.layout.objects.map((o) => o.id);
@@ -978,6 +1013,149 @@ export class Game {
   }
   private chapterNeeds(n: number) {
     return TRIAL_CHAPTERS.find((c) => c.n === n)?.needs ?? 0;
+  }
+
+  // ---------------- sieges (rules v7) ----------------
+  /** A handcrafted trial (not a siege, which keeps schools and powers). */
+  private isTrial() {
+    return this.kind === "trial" && !this.siege;
+  }
+  private openSieges() {
+    this.layer.open(
+      siegesScreen({
+        profile: this.profile,
+        onPlay: (boss, level) => {
+          this.layer.closeAll();
+          this.startSiege(boss, level);
+        },
+        onClose: () => this.layer.close(),
+      }),
+      { modal: true, onDismiss: () => this.layer.close() },
+    );
+  }
+  private openRivals() {
+    this.layer.open(
+      rivalsScreen(this.profile, () => this.layer.close()),
+      { modal: true, onDismiss: () => this.layer.close() },
+    );
+  }
+  private startSiege(boss: ChampionId, level: number) {
+    const p = this.profile;
+    const d = siegeDef(boss, level);
+    const architect = p.lastArch ?? "mason";
+    const pool = [...new Set(unlockedPieces(p))];
+    const run = newRun({
+      seed: d.seed,
+      biome: d.biome,
+      architect,
+      depth: d.depth,
+      powers: unlockedPowers(p),
+      aspects: activeAspects(p),
+      meta: metaBonus(p),
+      pool,
+    });
+    run.layout = siegeLayout(d);
+    run.gold = d.gold;
+    run.owned = pool;
+    for (const id of pool)
+      if (id !== "lure")
+        run.tiers[id] = Math.max(TUNE_SIEGE.tier, run.tiers[id] ?? 1);
+    run.relics = [];
+    run.night = NIGHTS;
+    run.mutators = [];
+    run.omens = [];
+    run.hoard = run.hoardMax = d.hoard;
+    // The siege armory lends a few relics (fixed per level).
+    for (const r of d.relics) applyCard(run, { type: "relic", id: r });
+    run.trial = `siege:${boss}:${level}`;
+    run.cap = d.cap;
+    run.locked = [];
+    run.gifts = [];
+    run.fresh = [];
+    this.trial = null;
+    this.siege = d;
+    this.run = run;
+    this.layer.closeAll();
+    this.enterBuild("trial");
+    this.layer.open(
+      siegeBriefScreen(d, () => this.layer.close()),
+      { modal: true, onDismiss: () => this.layer.close() },
+    );
+  }
+  private afterSiege(raid: Raid, result: ReturnType<Raid["result"]>) {
+    const d = this.siege!;
+    const p = this.profile;
+    const bossSlain = result.champions.includes(d.boss);
+    const stars = siegeStars({
+      bossSlain,
+      hoardLeft: raid.hoard,
+      stolen: result.stolen,
+      escaped: result.escaped,
+    });
+    const key = `${d.boss}:${d.level}`;
+    const first = stars > 0 && (p.trophies[d.boss] ?? 0) < d.level;
+    let souls = 0;
+    let infamy = 0;
+    let heirloom: Heirloom | null = null;
+    const renownBefore = p.renown;
+    if (stars > 0) {
+      const r = siegeReward(d.level, stars, first, metaBonus(p).s.souls ?? 0);
+      souls = addSouls(p, r.souls);
+      infamy = r.infamy;
+      if (infamy) grantInfamy(p, infamy);
+      if (first) {
+        p.trophies[d.boss] = d.level;
+        heirloom = rollHeirloom(
+          new Rng(hashString(`siege-spoils:${key}`)),
+          p.nextItem++,
+          d.depth,
+          d.level % 5 === 0 ? 3 : 2,
+        );
+        const sold = grantHeirloom(p, heirloom);
+        if (sold)
+          this.hud.toast(`Vault full: salvaged for ${sold} souls`, "info");
+      }
+      p.sieges[key] = Math.max(p.sieges[key] ?? 0, stars);
+      if (d.level >= 10) this.earn("siege10");
+      if (stars >= 3 && d.level >= 5) this.earn("siege3star");
+      if (SIEGE_BOSSES.every((b) => (p.trophies[b] ?? 0) >= 1))
+        this.earn("siegeAll");
+    }
+    p.kills += result.killed;
+    p.stats.kills += result.killed;
+    syncMetaStats(p);
+    const feats = this.takeFeats();
+    saveProfile(p);
+    audio.play(stars >= 3 ? "victory" : stars ? "dawn" : "defeat");
+    if (stars >= 3) this.coinRain(raid.layout);
+    for (const u of unlocksBetween(renownBefore, p.renown))
+      this.hud.toast(`Unlocked: ${u.label}`, "gold");
+    if (feats.length) setTimeout(() => audio.play("feat"), 900);
+    this.layer.open(
+      siegeResultScreen({
+        d,
+        stars,
+        bossSlain,
+        first,
+        souls,
+        infamy,
+        heirloom,
+        feats,
+        onRetry: () => {
+          this.layer.closeAll();
+          this.enterBuild("trial");
+        },
+        onNext: () => {
+          this.layer.closeAll();
+          this.startSiege(d.boss, d.level + 1);
+        },
+        onList: () => {
+          this.showTitle();
+          this.openSieges();
+        },
+      }),
+      { modal: true },
+    );
   }
 
   // ---------------- workshop ----------------
@@ -1102,11 +1280,13 @@ export class Game {
         this.party,
         champ
           ? `${HEROES[championFor(run, run.night)].name}`
-          : run.night > NIGHTS
-            ? "The abyss stirs"
-            : isEliteNight(run, run.night)
-              ? "Elite raid"
-              : "Tonight",
+          : this.party.some((q) => q.nemesis)
+            ? "A nemesis returns"
+            : run.night > NIGHTS
+              ? "The abyss stirs"
+              : isEliteNight(run, run.night)
+                ? "Elite raid"
+                : "Tonight",
         this.fogged(run) && !champ,
       );
       this.hud.setStartLabel(champ ? "Face the Champion" : "Begin Night");
@@ -1116,6 +1296,19 @@ export class Game {
       if (debut && debutInfo && !run.encounter && this.profile.tutorial >= 99) {
         setTimeout(() => this.heroInfo(debut.cls, true), 500);
       }
+    } else if (kind === "trial" && this.siege) {
+      const d = this.siege;
+      this.hud.setMutators([]);
+      this.party = d.party.map((p) => ({
+        ...p,
+        affixes: p.affixes ? [...p.affixes] : undefined,
+      }));
+      this.hud.setNightLabel(`S${d.level}`);
+      this.hud.setParty(
+        this.party,
+        `Siege · ${HEROES[d.boss].name} · level ${d.level}`,
+      );
+      this.hud.setStartLabel("Begin Siege");
     } else if (kind === "trial") {
       const t = this.trial!;
       this.hud.setMutators([]);
@@ -1156,12 +1349,13 @@ export class Game {
       affordable: infinite || (!full && run.gold >= pieceCost(run, id)),
       tier: run.tiers[id] ?? 1,
       fresh: false,
+      vet: vetRank(run.vet?.[id]),
     }));
     this.hud.setTray(items, this.tool, this.undo.length > 0, digCost(run));
     this.hud.setSchools(
       schoolCounts(
-        this.kind === "trial" ? [] : run.layout.objects.map((o) => o.kind),
-        this.kind === "trial" ? [] : run.relics,
+        this.isTrial() ? [] : run.layout.objects.map((o) => o.kind),
+        this.isTrial() ? [] : run.relics,
       ),
       !run.omens?.includes("discord"),
     );
@@ -1213,7 +1407,7 @@ export class Game {
       ),
       h("p", {}, def.rule),
       def.combo ? h("p", { class: "combo-hint" }, def.combo) : "",
-      this.kind === "trial"
+      this.isTrial()
         ? ""
         : h(
             "p",
@@ -1615,6 +1809,29 @@ export class Game {
     }
     this.hud.coach(null);
     this.flushSave();
+    if (this.kind === "trial" && this.siege) {
+      const d = this.siege;
+      this.goldBefore = run.gold;
+      this.beginRaid(
+        {
+          layout: run.layout,
+          party: this.party,
+          seed: d.seed,
+          night: NIGHTS,
+          hoard: run.hoard,
+          hoardMax: run.hoardMax,
+          mods: siegeMods(d, {
+            architect: run.architect,
+            tiers: run.tiers,
+            aspects: run.aspects,
+            meta: run.meta,
+            relics: run.relics,
+          }),
+        },
+        run.biome,
+      );
+      return;
+    }
     if (this.kind === "trial") {
       this.goldBefore = run.gold;
       this.beginRaid(trialSetup(this.trial!, run.layout), run.biome);
@@ -1721,9 +1938,11 @@ export class Game {
       this.kind === "run"
         ? champNight
           ? `${HEROES[championFor(this.run!, night)].name} descends`
-          : isEliteNight(this.run!, night)
-            ? "An elite hero leads them"
-            : `${this.party.length} hero${this.party.length > 1 ? "es" : ""} descend`
+          : this.party.some((q) => q.nemesis)
+            ? `${this.party.find((q) => q.nemesis)!.nemesis!.name} returns for revenge`
+            : isEliteNight(this.run!, night)
+              ? "An elite hero leads them"
+              : `${this.party.length} hero${this.party.length > 1 ? "es" : ""} descend`
         : "";
     this.hud.banner(title, sub, "night");
     this.updatePowersHud();
@@ -1731,7 +1950,7 @@ export class Game {
   private raidBiome: BiomeId = "crypt";
 
   private availablePowers(): PowerId[] {
-    return this.kind === "run"
+    return this.kind === "run" || (this.kind === "trial" && this.siege)
       ? (this.run?.powers ?? [])
       : this.kind === "workshop"
         ? unlockedPowers(this.profile)
@@ -1826,6 +2045,10 @@ export class Game {
   }
 
   private afterRaid(raid: Raid, result: ReturnType<Raid["result"]>) {
+    if (this.kind === "trial" && this.siege) {
+      this.afterSiege(raid, result);
+      return;
+    }
     if (this.kind === "trial") {
       this.afterTrial(raid, result);
       return;
@@ -1914,6 +2137,26 @@ export class Game {
       run.hoard > 0,
     );
     run.souls = (run.souls ?? 0) + progress.souls;
+    // Rules v7: blueprints earn veterancy with their kills this descent.
+    const promoted = creditVeterancy(run, result.kills);
+    if (promoted.length) {
+      progress.veterancy = promoted;
+      p.stats.veterans += promoted.filter(([, r]) => r >= 4).length;
+    }
+    for (const x of progress.nemesis?.slain ?? []) {
+      if (x.level >= 5) this.earn("nemesisLv5");
+      if (x.level >= 10) this.earn("nemesisLv10");
+    }
+    for (const it of progress.trophies ?? [])
+      this.hud.toast(
+        `Nemesis spoils: ${RARITIES[it.rarity].name} ${heirloomName(it)}`,
+        "gold",
+      );
+    if (progress.nemesis?.born)
+      this.hud.toast(
+        `${progress.nemesis.born.name} got away. They will be back.`,
+        "bad",
+      );
     if (progress.heirloom) {
       const it = progress.heirloom;
       this.hud.toast(
@@ -2465,9 +2708,11 @@ export class Game {
             ? "Workshop"
             : this.kind === "challenge"
               ? "Raid"
-              : this.kind === "trial"
-                ? `Trial ${this.trial?.id ?? ""}`
-                : `Night ${this.run?.night ?? ""}`,
+              : this.kind === "trial" && this.siege
+                ? `Siege · level ${this.siege.level}`
+                : this.kind === "trial"
+                  ? `Trial ${this.trial?.id ?? ""}`
+                  : `Night ${this.run?.night ?? ""}`,
         onResume: resume,
         onSettings: () => this.openSettings(),
         onShare:
@@ -2542,6 +2787,16 @@ export class Game {
         ),
         h("p", {}, d.rule),
         h("p", { class: "combo-hint" }, `Counter: ${HERO_COUNTER[cls]}`),
+        ...this.party
+          .filter((q) => q.cls === cls && q.nemesis)
+          .map((q) =>
+            h(
+              "p",
+              { class: "nemesis-hint" },
+              h("b", {}, `Nemesis: ${q.nemesis!.name}. `),
+              `${nemesisRank(q.nemesis!.level)}, level ${q.nemesis!.level}: an elite with +${Math.round(NEM_HP * q.nemesis!.level * 100)}% health and +${Math.round(NEM_DMG * q.nemesis!.level * 100)}% damage. Slay it for a great bounty and an heirloom; if it escapes, it grows.`,
+            ),
+          ),
         ...[
           ...new Set(
             this.party

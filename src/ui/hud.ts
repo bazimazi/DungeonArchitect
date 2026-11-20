@@ -31,6 +31,8 @@ export interface TrayItem {
   affordable: boolean;
   tier: number;
   fresh: boolean;
+  /** Veterancy rank this descent (rules v7). */
+  vet?: number;
 }
 export interface HudHandlers {
   tool(id: PieceId | "dig" | null): void;
@@ -502,16 +504,23 @@ export class Hud {
             "?",
           );
         const affixes = (p.affixes ?? []).map((a) => AFFIXES[a]);
-        const label = `${affixes.map((a) => a.name + " ").join("")}${p.elite ? "Elite " : ""}${HEROES[p.cls].name}`;
+        const label = p.nemesis
+          ? `Nemesis ${p.nemesis.name}, level ${p.nemesis.level} ${HEROES[p.cls].name}${affixes.length ? ` (${affixes.map((a) => a.name).join(", ")})` : ""}`
+          : `${affixes.map((a) => a.name + " ").join("")}${p.elite ? "Elite " : ""}${HEROES[p.cls].name}`;
         const cell = h(
           "button",
           {
-            class: `hero-chip${p.elite ? " elite" : ""}${isChampion(p.cls) ? " boss" : ""}${affixes.length ? " affixed" : ""}`,
-            "data-name": label,
+            class: `hero-chip${p.elite ? " elite" : ""}${isChampion(p.cls) ? " boss" : ""}${affixes.length ? " affixed" : ""}${p.nemesis ? " nemesis" : ""}`,
+            "data-name": p.nemesis
+              ? `${p.nemesis.name} · Lv ${p.nemesis.level}`
+              : label,
             "aria-label": label,
           },
           heroArt(p.cls, 40, p.elite),
           h("span", { class: "hp" }, h("i")),
+          p.nemesis
+            ? h("span", { class: "nem-lv" }, String(p.nemesis.level))
+            : null,
           affixes.length
             ? h(
                 "span",
@@ -584,6 +593,16 @@ export class Hud {
             String(it.cost),
           ),
           it.tier > 1 ? h("span", { class: "tier" }, roman(it.tier)) : null,
+          it.vet
+            ? h(
+                "span",
+                {
+                  class: `vet v${it.vet}`,
+                  title: `Veterancy: +${it.vet * 6}% power`,
+                },
+                "▲".repeat(it.vet),
+              )
+            : null,
           i < 9 ? h("kbd", {}, String(i + 1)) : null,
         ),
       ),

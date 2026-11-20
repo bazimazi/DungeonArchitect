@@ -54,6 +54,8 @@ import { AFFIXES, AFFIX_IDS, type AffixId } from "./schools";
 import { ALT_KITS } from "./progression";
 import type { Encounter } from "./encounters";
 import { ms, pm, type RunMeta } from "./meta";
+import { nemesisFor, type RunNemesis } from "./nemesis";
+import { sourcePiece } from "./schools";
 
 export type Card =
   | { type: "piece"; id: PieceId }
@@ -150,6 +152,50 @@ export interface RunState {
   pure?: boolean;
   /** Souls earned so far this run. */
   souls?: number;
+  /** Rules v7: kills by each blueprint this descent (veterancy). */
+  vet?: Partial<Record<PieceId, number>>;
+  /** Nemeses this descent will meet (snapshotted when it began). */
+  nemeses?: RunNemesis[];
+}
+
+// ---------- veterancy (rules v7) ----------
+/** Kills a blueprint needs this descent for each veterancy rank. */
+export const VET_AT = [5, 15, 35, 70] as const;
+export const VET_NAMES = [
+  "Green",
+  "Blooded",
+  "Veteran",
+  "Elite",
+  "Legendary",
+] as const;
+/** Power each rank adds to every copy of the blueprint. */
+export const VET_PER = 0.06;
+export const vetRank = (kills = 0) => VET_AT.filter((k) => kills >= k).length;
+/** Veterancy ranks in play (only blueprints with a rank). */
+export function vetRanks(run: Partial<Pick<RunState, "vet">>) {
+  const out: Partial<Record<PieceId, number>> = {};
+  for (const [k, v] of Object.entries(run.vet ?? {})) {
+    const r = vetRank(v);
+    if (r) out[k as PieceId] = r;
+  }
+  return out;
+}
+/** Credit a night's kills to blueprints; returns promotions [piece, rank]. */
+export function creditVeterancy(
+  run: Pick<RunState, "vet">,
+  kills: Record<string, number>,
+): [PieceId, number][] {
+  const vet = (run.vet ??= {});
+  const up: [PieceId, number][] = [];
+  for (const [src, k] of Object.entries(kills)) {
+    const piece = sourcePiece(src);
+    if (!piece || !k) continue;
+    const before = vetRank(vet[piece]);
+    vet[piece] = (vet[piece] ?? 0) + k;
+    const after = vetRank(vet[piece]);
+    if (after > before) up.push([piece, after]);
+  }
+  return up;
 }
 
 export const HERO_ARRIVAL: Record<HeroClass, number> = {
@@ -366,6 +412,8 @@ export function newRun(opts: {
   /** Pieces the Legion keystone may add (defaults to the base pool). */
   pool?: PieceId[];
   pure?: boolean;
+  /** Nemeses scheduled for this descent (campaign only). */
+  nemeses?: RunNemesis[];
 }): RunState {
   const meta = opts.meta ?? undefined;
   const omens = [...new Set(opts.omens ?? [])];
@@ -447,6 +495,7 @@ export function newRun(opts: {
   if (opts.signature) run.signature = true;
   if (meta) run.meta = meta;
   if (opts.pure) run.pure = true;
+  if (opts.nemeses?.length) run.nemeses = opts.nemeses.map((x) => ({ ...x }));
   // A first trap on the starter tunnel so night one teaches itself.
   const spot = firstTunnelTile(layout, 4);
   if (spot) {
@@ -534,7 +583,7 @@ export function raidMods(
     RunState,
     "night" | "depth" | "mutators" | "architect" | "relics" | "tiers"
   > &
-    Partial<Pick<RunState, "omens" | "blight" | "aspects" | "meta">>,
+    Partial<Pick<RunState, "omens" | "blight" | "aspects" | "meta" | "vet">>,
 ): RaidMods {
   const n = run.night;
   const heat = heatFor(run.depth, n);
@@ -566,6 +615,7 @@ export function raidMods(
     schools: !omen(run, "discord"),
     aspects: run.aspects ?? [],
     ...(run.meta ? { meta: run.meta } : {}),
+    ...(run.vet ? { vet: vetRanks(run) } : {}),
   };
 }
 
@@ -617,17 +667,28 @@ const MAX_PARTY = 10;
 /** The party that will attack on night n. Deterministic per run seed. */
 export function partyFor(
   run: Pick<RunState, "seed" | "depth" | "mutators" | "boss"> &
-    Partial<Pick<RunState, "omens" | "bribe">>,
+    Partial<Pick<RunState, "omens" | "bribe" | "nemeses">>,
   n: number,
 ): PartyMember[] {
   const party = rawParty(run, n);
+  // Rules v7: a nemesis returns for revenge (and can't be bribed away).
+  const nem = nemesisFor(run.nemeses, n);
+  if (nem) {
+    party.push({
+      cls: nem.cls,
+      elite: true,
+      affixes: [...nem.affixes],
+      nemesis: { id: nem.id, level: nem.level, name: nem.name },
+    });
+    party.sort((a, b) => ORDER[a.cls] - ORDER[b.cls]);
+  }
   // A turncoat paid at dawn: the strongest ordinary hero stays home.
   if (run.bribe === n) {
     let pick = -1;
     let best = -1;
     for (let i = 0; i < party.length; i++) {
       const p = party[i];
-      if (isChampion(p.cls)) continue;
+      if (isChampion(p.cls) || p.nemesis) continue;
       const v = HEROES[p.cls].points + (p.elite ? 3 : 0);
       if (v > best) {
         best = v;

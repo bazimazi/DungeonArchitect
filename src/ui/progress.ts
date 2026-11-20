@@ -27,7 +27,8 @@ import {
   SCHOOL_TIERS,
 } from "../game/schools";
 import { fmt, h, icon, pieceArt } from "./dom";
-import { RARITIES, heirloomName } from "../game/meta";
+import { RARITIES, awakeLevel, heirloomName, openItemRows } from "../game/meta";
+import { VET_NAMES, VET_PER } from "../game/run";
 
 const bar = (frac: number) =>
   h(
@@ -260,6 +261,62 @@ export function progressList(pr: Progress, archName?: string) {
         "crown",
         `${archName ?? "Architect"} reached level ${pr.archLevel}`,
         ARCH_REWARDS[pr.archLevel] ?? "",
+      ),
+    );
+  // Rules v7.
+  for (const [id, rank] of pr.veterancy ?? [])
+    items.push(
+      row(
+        "star",
+        `${PIECES[id].name}: ${VET_NAMES[rank]}`,
+        `veterancy · +${Math.round(rank * VET_PER * 100)}% power this descent`,
+      ),
+    );
+  const nem = pr.nemesis;
+  for (const x of nem?.slain ?? []) {
+    const r = row(
+      "skull",
+      `Nemesis slain: ${x.name}`,
+      `${HEROES[x.cls].name} · level ${x.level}`,
+    );
+    r.classList.add("nemesis-row", "slain");
+    items.push(r);
+  }
+  for (const it of pr.trophies ?? []) {
+    const r = row(
+      "relic",
+      `Spoils: ${heirloomName(it)}`,
+      `${RARITIES[it.rarity].name} · item level ${it.ilvl}`,
+    );
+    r.classList.add("heirloom-row");
+    r.style.setProperty("--rc", RARITIES[it.rarity].color);
+    items.push(r);
+  }
+  for (const x of nem?.grew ?? []) {
+    const r = row(
+      "skull",
+      `${x.name} got away again`,
+      `nemesis level ${x.level}${x.affixes.length ? ` · ${x.affixes.map((a) => AFFIXES[a].name).join(", ")}` : ""}`,
+    );
+    r.classList.add("nemesis-row");
+    items.push(r);
+  }
+  if (nem?.born) {
+    const x = nem.born;
+    const r = row(
+      "skull",
+      `A nemesis is born: ${x.name}`,
+      `the ${HEROES[x.cls].name.toLowerCase()} escaped with your treasure and will return`,
+    );
+    r.classList.add("nemesis-row");
+    items.push(r);
+  }
+  for (const it of pr.awakened ?? [])
+    items.push(
+      row(
+        "relic",
+        `${heirloomName(it)} awakens`,
+        `awakening ${awakeLevel(it.awake).level}${openItemRows(it) ? " · a talent awaits" : ""}`,
       ),
     );
   if (!items.length) return null;

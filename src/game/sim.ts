@@ -5,6 +5,8 @@
  */
 import { Rng } from "../engine/math";
 import type { RunMeta } from "./meta";
+import { NEM_DMG, NEM_HP, type NemesisReport } from "./nemesis";
+import { VET_PER } from "./run";
 import {
   DX,
   DY,
@@ -58,6 +60,8 @@ export interface PartyMember {
   elite?: boolean;
   /** Visible extra rules carried by elites (rules v5). */
   affixes?: AffixId[];
+  /** A returning nemesis (rules v7). */
+  nemesis?: { id: number; level: number; name: string };
 }
 export interface RaidMods {
   heroHp: number;
@@ -79,6 +83,8 @@ export interface RaidMods {
   aspects?: PieceId[];
   /** Sanctum bonuses (rules v6; campaign descents only). */
   meta?: RunMeta;
+  /** Veterancy rank of each blueprint this descent (rules v7). */
+  vet?: Partial<Record<PieceId, number>>;
 }
 export interface RaidSetup {
   layout: Layout;
@@ -212,6 +218,8 @@ export interface Hero extends UnitBase {
   ward: number;
   /** What poisoned the hero (credited for poison kills). */
   poisonSrc: string;
+  /** Nemesis id (0: an ordinary hero). */
+  nemesis: number;
 }
 export interface Monster extends UnitBase {
   side: "monster";
@@ -383,6 +391,10 @@ export interface RaidResult {
   schoolKills: number;
   /** School tiers awakened in this raid. */
   schools: SchoolLevels;
+  /** Rules v7: nemeses slain and survived, and thieves who got away. */
+  slain?: number[];
+  survived?: { id: number; loot: number }[];
+  thieves?: { cls: HeroClass; affixes: AffixId[]; loot: number }[];
 }
 
 const DISARMABLE: TrapId[] = [
@@ -572,6 +584,13 @@ export class Raid {
       const h = this.makeHero(p.cls, !!p.elite, e.x + 0.5, e.y + 0.5);
       h.spawnTick = s(0.4 + i * 1.1);
       for (const a of p.affixes ?? []) if (AFFIXES[a]) h.affixes.push(a);
+      // A nemesis grows tougher every time it gets away.
+      if (p.nemesis) {
+        const lv = Math.max(1, p.nemesis.level);
+        h.nemesis = p.nemesis.id;
+        h.maxHp = h.hp = Math.round(h.hp * (1 + NEM_HP * lv));
+        h.dmg *= 1 + NEM_DMG * lv;
+      }
       if (h.affixes.includes("swift")) h.speed *= 1.2;
       if (h.affixes.includes("warded")) h.ward = Math.round(h.maxHp * 0.25);
     });
@@ -652,6 +671,7 @@ export class Raid {
       affixes: [],
       ward: 0,
       poisonSrc: "gas",
+      nemesis: 0,
     };
     h.alive = false;
     this.heroes.push(h);
@@ -690,8 +710,9 @@ export class Raid {
     if (kind === "gargoyle" && this.asp("gargoyle")) dmgMul *= 1.3;
     if (kind === "wraith" && this.asp("wraith")) hpMul *= 0.7;
     if (kind === "archer" && this.asp("archer")) dmgMul *= 0.75;
-    // Sanctum: the Heart, talents and heirlooms, then the piece's forge.
-    const forged = this.piecePow(kind);
+    // Sanctum: the Heart, talents and heirlooms, then the piece's forge,
+    // then the blueprint's veterancy this descent.
+    const forged = this.piecePow(kind) * this.vetPow(kind);
     hpMul *= (1 + this.meta("monsterHp")) * forged;
     dmgMul *= (1 + this.meta("monsterDmg")) * forged;
     spd *= 1 + this.meta("monsterSpd");
@@ -737,6 +758,13 @@ export class Raid {
     if (!m) return 1;
     const p = sourcePiece(source);
     return 1 + ((p && m.p[p]?.pow) || 0);
+  }
+  /** Veterancy power of the blueprint behind a source (1 without one). */
+  private vetPow(source: string) {
+    const v = this.setup.mods.vet;
+    if (!v) return 1;
+    const p = sourcePiece(source);
+    return 1 + VET_PER * ((p && v[p]) || 0);
   }
   /** Is this piece's mastered aspect in play? */
   private asp(k: PieceId) {
@@ -906,6 +934,8 @@ export class Raid {
       )
         amt *= 0.75;
       if (type === "fire" && this.mutators.has("fireproof")) amt *= 0.5;
+      // Veteran traps hit harder (monster blows carry it already).
+      if (TRAP_KINDS.has(source)) amt *= this.vetPow(source);
       if (type === "poison" && this.relics.has("venom")) amt *= 2;
       if (this.relics.has("lastStand") && this.hoard * 2 < this.hoardMax)
         amt *= 1.3;
@@ -1403,7 +1433,21 @@ export class Raid {
       kills: this.stats.kills,
       damage: this.stats.damage,
       seconds: this.tick * TICK,
+      ...this.nemesisReport(),
     };
+  }
+  /** Rules v7: who got away with treasure, and how the nemeses fared. */
+  private nemesisReport(): NemesisReport {
+    const out: NemesisReport = { slain: [], survived: [], thieves: [] };
+    for (const h of this.heroes) {
+      if (h.nemesis) {
+        if (h.state === "dead") out.slain.push(h.nemesis);
+        else if (h.state === "escaped")
+          out.survived.push({ id: h.nemesis, loot: h.loot });
+      } else if (h.state === "escaped" && h.loot > 0 && !isChampion(h.cls))
+        out.thieves.push({ cls: h.cls, affixes: [...h.affixes], loot: h.loot });
+    }
+    return out;
   }
 
   // ---------- traps ----------

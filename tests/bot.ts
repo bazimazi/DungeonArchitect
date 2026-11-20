@@ -49,7 +49,14 @@ import {
   type RunState,
 } from "../src/game/run";
 import { Raid } from "../src/game/sim";
-import type { ArchitectId, BiomeId } from "../src/game/defs";
+import type { ArchitectId, BiomeId, ChampionId } from "../src/game/defs";
+import {
+  TUNE_SIEGE,
+  siegeDef,
+  siegeLayout,
+  siegeMods,
+  siegeStars,
+} from "../src/game/sieges";
 
 export interface BotOpts {
   seed: number;
@@ -447,6 +454,90 @@ function castPowers(
     if (raid.cast(p, best.x, best.y, cost))
       cds[p] = Math.round(def.cooldown / 0.05);
   }
+}
+
+/** Rules v7: the bot lays one siege (build once, one raid). Returns stars. */
+export function playSiege(o: {
+  boss: ChampionId;
+  level: number;
+  meta?: RunState["meta"];
+  skill?: number;
+}) {
+  const d = siegeDef(o.boss, o.level);
+  const skill = o.skill ?? 0.7;
+  const rng = new Rng(d.seed * 7 + 1);
+  const run = newRun({
+    seed: d.seed,
+    biome: d.biome,
+    architect: "mason",
+    depth: d.depth,
+    powers: ["rockfall", "shriek", "chill"],
+    meta: o.meta,
+  });
+  run.layout = siegeLayout(d);
+  run.gold = d.gold;
+  run.owned = [...ALL_PIECES];
+  for (const id of run.owned)
+    if (id !== "lure")
+      run.tiers[id] = Math.max(TUNE_SIEGE.tier, run.tiers[id] ?? 1);
+  run.relics = [];
+  run.mutators = [];
+  run.night = NIGHTS;
+  run.cap = d.cap;
+  run.locked = [];
+  run.gifts = [];
+  run.hoard = run.hoardMax = d.hoard;
+  for (const r of d.relics) applyCard(run, { type: "relic", id: r });
+  shapeRoute(run, Math.min(run.gold * 0.25 * skill, 120));
+  placePieces(run, rng);
+  for (let g = 0; g < 30; g++) {
+    const counts = new Map<PieceId, number>();
+    for (const ob of run.layout.objects)
+      counts.set(ob.kind, (counts.get(ob.kind) ?? 0) + 1);
+    const order = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    let done = false;
+    for (const [k] of order) {
+      const c = reinforceCost(run, k);
+      if (c !== null && c <= run.gold) {
+        reinforce(run, k);
+        done = true;
+        break;
+      }
+    }
+    if (!done) break;
+  }
+  const raid = new Raid({
+    layout: run.layout,
+    party: d.party.map((p) => ({ ...p })),
+    seed: d.seed,
+    night: NIGHTS,
+    hoard: run.hoard,
+    hoardMax: run.hoardMax,
+    mods: siegeMods(d, {
+      architect: "mason",
+      tiers: run.tiers,
+      meta: o.meta,
+      relics: run.relics,
+    }),
+  });
+  const cds: Record<string, number> = {};
+  while (!raid.finished && raid.tick < 10_000) {
+    if (skill > 0 && raid.tick % 4 === 0)
+      castPowers(raid, run.powers, cds, skill);
+    raid.step();
+    raid.events.length = 0;
+  }
+  const r = raid.result();
+  if (process.env.SIEGE_DEBUG)
+    process.stderr.write(
+      `${o.boss} L${o.level}: pieces ${run.layout.objects.length}/${d.cap} gold left ${run.gold} route ${routeLength(run.layout)} killed ${r.killed}/${d.party.length} stolen ${r.stolen} boss ${r.champions.join(",")} secs ${Math.round(r.seconds)} tiers ${JSON.stringify(Object.fromEntries(Object.entries(run.tiers).filter(([, t]) => (t ?? 0) > 3)))}\n`,
+    );
+  return siegeStars({
+    bossSlain: r.champions.includes(o.boss),
+    hoardLeft: raid.hoard,
+    stolen: r.stolen,
+    escaped: r.escaped,
+  });
 }
 
 export function playRun(o: BotOpts): BotResult {

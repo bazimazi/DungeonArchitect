@@ -42,8 +42,14 @@ npm run dev        # http://localhost:5173
   - **Dark Arts:** each infamy level (endless) is a talent point for a three-branch tree (Engineer, Warlord, Overseer) with keystones (Grand Design, Legion, Fourth Card) and endless paragon nodes. Respecs are free.
   - **Heirlooms:** equipment found on good nights and every conquest, with five rarities, an item level that follows depth, rolled affixes and eight legendary powers. Equip up to five, temper them with souls or salvage them.
   - **Soul Well:** after your first conquest it fills with souls while you are away (up to 12 hours).
-  - The Sanctum applies to new campaign descents only, never to dailies, trials, the workshop or raid links. A descent can be started **sealed** for a pure challenge.
-- **Feats:** 96 long-term goals that pay renown (and souls).
+  - **Awakening:** equipped heirlooms gain experience every night they serve and level up without end (+3% to every value per level). Awakening 3, 8 and 15 open three rows of item talents (Keen or Balanced, Soulbound or Gilded, Perfected or Ascendant). **Reforging** rerolls one rolled affix for souls, at a price that climbs each time.
+  - **Expeditions:** send a war party, led by one of your forged pieces, to raid the surface for 1–12 real hours. It always comes home with souls, infamy, an heirloom or embers. Up to three at once.
+  - **The Ember Throne:** once the Heart holds 50 levels and you have conquered depth 12, **rekindle** it: its levels return to the fire for embers (the square root of what it absorbed). Embers buy seven **Eternal Flames** that are never lost (souls, infamy, combat power, power damage, cheaper Heart and Forge, gold).
+  - The Sanctum applies to new campaign descents and sieges only, never to dailies, trials, the workshop or raid links. A descent can be started **sealed** for a pure challenge.
+- **Veterancy:** within a descent, every blueprint ranks up with its kills (Blooded, Veteran, Elite, Legendary: +6% power each). Chevrons on the build tray show the rank.
+- **Nemeses:** from depth 2, a hero who escapes with your treasure joins the **Rogues' Gallery** (up to eight). Nemeses come back in later descents as named elites (one to three per descent), grow a level and new affixes every time they get away again, and pay a great bounty and an heirloom when you finally slay them.
+- **Sieges:** every champion and realm lord you have slain opens an endless ladder of single-night sieges. Each level has a fixed map, party, treasury and lent relics, every blueprint at tier III, and your full Sanctum. First clears raise that champion's **trophy**, a lasting Sanctum bonus per level cleared, and pay souls, infamy and an heirloom.
+- **Feats:** 118 long-term goals that pay renown (and souls).
 - **Daily:** the same seeded run for everyone each UTC day, with a shareable result line.
 - **Workshop:** unlimited gold and every unlocked piece. Test against any night's party and share your dungeon as a link.
 - **Raid links:** opening `#raid=…` lets you assemble a hero party and try to rob a friend's dungeon.
@@ -67,7 +73,10 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rat
   - `floorplans.ts`: the map archetype of each depth.
   - `schools.ts`: schools, aspects and elite affixes (rules v5 data).
   - `progression.ts`: piece mastery, the bestiary, daily bounties and architect levels.
-  - `meta.ts`: the Sanctum (rules v6): souls, infamy, the Dungeon Heart, the Forge, the Dark Arts, heirlooms and the Soul Well.
+  - `meta.ts`: the Sanctum (rules v6): souls, infamy, the Dungeon Heart, the Forge, the Dark Arts, heirlooms and the Soul Well; rules v7 adds awakening, reforging, the Ember Throne and trophies.
+  - `nemesis.ts`: the Rogues' Gallery (rules v7).
+  - `sieges.ts`: the siege ladders (rules v7).
+  - `expeditions.ts`: war parties on the surface (rules v7).
   - `encounters.ts`: dawn visitors and their offers.
   - `share.ts`: link codec.
   - `trials.ts`: the handcrafted trial dungeons.
@@ -77,7 +86,7 @@ BALANCE=1 npx vitest run tests/balance.test.ts   # bot plays whole runs: win rat
   - `sprites.ts`: procedural art.
   - `fx.ts`: particles and floating text.
 - `src/engine`: seeded RNG, easing and noise (`math.ts`), and the synthesized audio and music (`audio.ts`).
-- `src/ui`: the DOM HUD and the screens (`sanctum.ts` is the Sanctum).
+- `src/ui`: the DOM HUD and the screens (`sanctum.ts` is the Sanctum, `sieges.ts` the sieges and the Rogues' Gallery).
 - `src/app.ts`: the game controller (loop, input, state machine, and the glue from simulation events to effects).
 
 The simulation runs at a fixed 20 Hz and uses only IEEE-exact arithmetic. Identical inputs replay identically on any device, which is what makes daily runs and shared raids fair. The renderer interpolates between ticks and never feeds anything back into the simulation.

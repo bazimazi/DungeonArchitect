@@ -29,6 +29,7 @@ import {
   heatOf,
   heatRenown,
   isLordDepth,
+  type ChampionId,
   type OmenId,
   type PieceId,
 } from "./defs";
@@ -133,6 +134,14 @@ export interface MetaProfile {
   wellAt: number;
   /** The last descent was started with the Sanctum sealed. */
   pure?: boolean;
+  /** Rules v7: embers in hand (from rekindling the Heart). */
+  embers: number;
+  /** Times the Heart has been rekindled. */
+  rekindles: number;
+  /** Eternal Flame levels (bought with embers, never reset). */
+  flames: Record<string, number>;
+  /** Highest siege level cleared against each champion (their trophy). */
+  trophies: Record<string, number>;
 }
 export const defaultMeta = (): MetaProfile => ({
   souls: 0,
@@ -145,6 +154,10 @@ export const defaultMeta = (): MetaProfile => ({
   equipped: [],
   nextItem: 1,
   wellAt: 0,
+  embers: 0,
+  rekindles: 0,
+  flames: {},
+  trophies: {},
 });
 
 // ---------------- infamy ----------------
@@ -419,9 +432,10 @@ export const HEART: HeartDef[] = [
   },
 ];
 export const heartDef = (id: string) => HEART.find((h) => h.id === id);
-export function heartCost(def: HeartDef, level: number) {
+/** Cost of the next level (`disc` is the Ember Heart discount multiplier). */
+export function heartCost(def: HeartDef, level: number, disc = 1) {
   if (def.max !== undefined && level >= def.max) return null;
-  return Math.round(def.base * Math.pow(def.growth, level));
+  return Math.max(1, Math.round(def.base * Math.pow(def.growth, level) * disc));
 }
 
 // ---------------- the Forge ----------------
@@ -429,8 +443,9 @@ export function heartCost(def: HeartDef, level: number) {
 export const FORGE_CAP = [3, 8, 15, 25, Infinity] as const;
 export const FORGE_PER = 0.015;
 export const forgeCap = (kills: number) => FORGE_CAP[masteryRank(kills)];
-export function forgeCost(level: number) {
-  return Math.round(15 * Math.pow(1.15, level));
+/** Cost of the next forge level (`disc` is the Kindled Forge multiplier). */
+export function forgeCost(level: number, disc = 1) {
+  return Math.max(1, Math.round(15 * Math.pow(1.15, level) * disc));
 }
 /** Forge level that opens each talent row. */
 export const FORGE_ROWS = [5, 15, 30] as const;
@@ -927,22 +942,80 @@ export interface Heirloom {
   temper: number;
   legend?: LegendId;
   locked?: boolean;
+  /** Rules v7: awakening experience, earned while equipped. */
+  awake?: number;
+  /** Awakening talent picks, one per row (-1 for none). */
+  atal?: number[];
+  /** Times an affix has been reforged (raises the next price). */
+  reforges?: number;
 }
+
+// ---------------- awakening (rules v7) ----------------
+/** Each awakening level adds this much to every value of the heirloom. */
+export const AWAKE_PER = 0.03;
+/** Awakening experience from level l to l + 1. */
+export const awakeStep = (l: number) => 10 + 5 * l;
+export function awakeLevel(xp = 0) {
+  let l = 0;
+  let at = 0;
+  while (xp >= at + awakeStep(l)) {
+    at += awakeStep(l);
+    l++;
+  }
+  const step = awakeStep(l);
+  return { level: l, prev: at, next: at + step, frac: (xp - at) / step };
+}
+/** Awakening levels that open each row of item talents. */
+export const AWAKE_ROWS = [3, 8, 15] as const;
+/** Two choices per row, the same for every heirloom. */
+export const ITEM_TALENTS: [PieceTalent, PieceTalent][] = [
+  [
+    { name: "Keen", text: "Its implicit value is 25% stronger." },
+    { name: "Balanced", text: "Its rolled affixes are 15% stronger." },
+  ],
+  [
+    { name: "Soulbound", text: "+8% souls earned." },
+    { name: "Gilded", text: "+8% hero bounty gold." },
+  ],
+  [
+    { name: "Perfected", text: "Every affix rolls its best value." },
+    { name: "Ascendant", text: "Tempers five more times." },
+  ],
+];
+/** The item talent picked in a row, if that row is open. */
+export function itemPick(
+  it: Partial<Pick<Heirloom, "awake" | "atal">>,
+  row: number,
+) {
+  if (awakeLevel(it.awake).level < AWAKE_ROWS[row]) return -1;
+  return it.atal?.[row] ?? -1;
+}
+/** Experience each equipped heirloom gains for a night survived. */
+export const awakeGain = (stars: number, conquest: boolean) =>
+  1 + stars + (conquest ? 10 : 0);
+
 /** Value of one affix on an item. The first (implicit) affix is half again stronger. */
 export function affixValue(
-  it: Pick<Heirloom, "ilvl" | "temper">,
+  it: Pick<Heirloom, "ilvl" | "temper"> &
+    Partial<Pick<Heirloom, "awake" | "atal">>,
   stat: MetaStat,
   roll: number,
   implicit = false,
 ) {
   const base = AFFIX_BASE[stat] ?? 0;
   const lvl = FLAT_AFFIX.has(stat) ? 1 : 1 + 0.05 * (Math.max(1, it.ilvl) - 1);
+  const talent =
+    (implicit && itemPick(it, 0) === 0 ? 1.25 : 1) *
+    (!implicit && itemPick(it, 0) === 1 ? 1.15 : 1);
+  const r = itemPick(it, 2) === 0 ? 1 : roll;
   const v =
     base *
     lvl *
-    (0.6 + 0.4 * roll) *
+    (0.6 + 0.4 * r) *
     (implicit ? 1.5 : 1) *
-    (1 + 0.08 * it.temper);
+    (1 + 0.08 * it.temper) *
+    (1 + AWAKE_PER * awakeLevel(it.awake).level) *
+    talent;
   return STATS[stat].pct ? r2(v) : Math.round(v * 10) / 10;
 }
 export function heirloomStats(it: Heirloom): StatBlock {
@@ -953,12 +1026,17 @@ export function heirloomStats(it: Heirloom): StatBlock {
   if (it.legend)
     for (const [k, v] of Object.entries(LEGENDS[it.legend].stats))
       add(out, k as MetaStat, v);
+  if (itemPick(it, 1) === 0) add(out, "souls", 0.08);
+  if (itemPick(it, 1) === 1) add(out, "bounty", 0.08);
   return out;
 }
 export const heirloomName = (it: Heirloom) =>
   `${BASES[it.base].name}${it.legend ? ` ${LEGENDS[it.legend].name}` : ""}`;
+/** How many times an heirloom can be tempered. */
+export const temperCap = (it: Heirloom) =>
+  RARITIES[it.rarity].temper + (itemPick(it, 2) === 1 ? 5 : 0);
 export function temperCost(it: Heirloom) {
-  if (it.temper >= RARITIES[it.rarity].temper) return null;
+  if (it.temper >= temperCap(it)) return null;
   return Math.round(
     RARITIES[it.rarity].salvage * 0.6 * (1 + 0.1 * it.ilvl) * (it.temper + 1),
   );
@@ -1047,6 +1125,265 @@ export function heirloomDrop(
   return rollHeirloom(rng, id, ilvl, abyss && o.night % 5 === 0 ? 2 : 0);
 }
 
+// ---------------- reforging (rules v7) ----------------
+/** Price to reroll one rolled affix; it climbs with every reforge. */
+export function reforgeCost(it: Heirloom) {
+  if (it.rarity < 1 || it.affixes.length < 2) return null;
+  return Math.round(
+    RARITIES[it.rarity].salvage *
+      0.5 *
+      (1 + 0.1 * (it.ilvl - 1)) *
+      (1 + (it.reforges ?? 0)),
+  );
+}
+/**
+ * Reroll the stat and value of one rolled affix (never the implicit).
+ * The outcome is fixed by the item and how often it was reforged, so
+ * reloading can't fish for a better roll.
+ */
+export function reforge(p: MetaProfile, id: number, slot: number) {
+  const it = p.heirlooms.find((x) => x.id === id);
+  if (!it || slot < 1 || slot >= it.affixes.length) return false;
+  const cost = reforgeCost(it);
+  if (cost === null || p.souls < cost) return false;
+  const rng = new Rng(hashString(`reforge:${it.id}:${it.reforges ?? 0}`));
+  const taken = new Set(it.affixes.map(([s]) => s));
+  const pool = AFFIX_STATS.filter(
+    (s) => !taken.has(s) || s === it.affixes[slot][0],
+  );
+  const stat = rng.pick(pool);
+  p.souls -= cost;
+  it.affixes[slot] = [stat, r2(rng.next())];
+  it.reforges = (it.reforges ?? 0) + 1;
+  return true;
+}
+
+/** Pick (or clear, with -1) an item talent. Rows open at awakening 3, 8, 15. */
+export function setItemTalent(
+  p: MetaProfile,
+  id: number,
+  row: number,
+  choice: number,
+) {
+  const it = p.heirlooms.find((x) => x.id === id);
+  if (!it || row < 0 || row >= AWAKE_ROWS.length) return false;
+  if (awakeLevel(it.awake).level < AWAKE_ROWS[row]) return false;
+  const picks = [...(it.atal ?? [-1, -1, -1])];
+  while (picks.length < AWAKE_ROWS.length) picks.push(-1);
+  const next = choice === 0 || choice === 1 ? choice : -1;
+  // Ascendant can't be dropped while the tempers it allowed are in use.
+  if (
+    row === 2 &&
+    picks[2] === 1 &&
+    next !== 1 &&
+    it.temper > RARITIES[it.rarity].temper
+  )
+    return false;
+  picks[row] = next;
+  it.atal = picks;
+  return true;
+}
+/** Item talent rows opened but not chosen. */
+export function openItemRows(it: Heirloom) {
+  const l = awakeLevel(it.awake).level;
+  return AWAKE_ROWS.filter((at, r) => l >= at && !((it.atal?.[r] ?? -1) >= 0))
+    .length;
+}
+/** Equipped heirlooms gain awakening experience; returns new levels reached. */
+export function awakenEquipped(p: MetaProfile, xp: number) {
+  const up: Heirloom[] = [];
+  if (xp <= 0) return up;
+  for (const id of p.equipped) {
+    const it = p.heirlooms.find((x) => x.id === id);
+    if (!it) continue;
+    const before = awakeLevel(it.awake).level;
+    it.awake = (it.awake ?? 0) + xp;
+    if (awakeLevel(it.awake).level > before) up.push(it);
+  }
+  return up;
+}
+
+// ---------------- the Ember Throne (rules v7) ----------------
+/**
+ * Rekindling: the Heart's levels go back into the fire for embers, which buy
+ * Eternal Flames that are never lost. Souls in hand are kept. Embers grow
+ * with the square root of what the Heart had absorbed, so every rekindle
+ * asks for a bigger Heart than the last.
+ */
+export const REKINDLE_LEVELS = 50;
+export const REKINDLE_DEPTH = 12;
+/** Souls the Heart has absorbed (at list price) for its current levels. */
+export function heartInvested(p: Pick<MetaProfile, "heart">) {
+  let total = 0;
+  for (const d of HEART) {
+    const lv = p.heart[d.id] ?? 0;
+    for (let i = 0; i < lv; i++) total += heartCost(d, i) ?? 0;
+  }
+  return total;
+}
+export const emberYield = (invested: number) =>
+  Math.floor(Math.sqrt(Math.max(0, invested) / 400));
+/** Why the Heart can't be rekindled yet, or null. */
+export function rekindleBlock(
+  p: Pick<MetaProfile, "heart">,
+  bestDepth: number,
+): "depth" | "levels" | null {
+  if (bestDepth < REKINDLE_DEPTH) return "depth";
+  if (heartLevels(p) < REKINDLE_LEVELS) return "levels";
+  return null;
+}
+export function rekindle(p: MetaProfile, bestDepth: number) {
+  if (rekindleBlock(p, bestDepth)) return 0;
+  const gain = emberYield(heartInvested(p));
+  p.heart = {};
+  p.embers += gain;
+  p.rekindles++;
+  return gain;
+}
+export interface FlameDef {
+  id: string;
+  name: string;
+  text: string;
+  /** Stats per level. */
+  stats: StatBlock;
+  /** Multiplier per level on Heart or Forge prices (0.95 = 5% off). */
+  heartDisc?: number;
+  forgeDisc?: number;
+  max?: number;
+}
+export const FLAMES: FlameDef[] = [
+  {
+    id: "soulfire",
+    name: "Soulfire",
+    text: "+6% souls earned per level.",
+    stats: { souls: 0.06 },
+  },
+  {
+    id: "vigor",
+    name: "Eternal Vigor",
+    text: "+2% trap damage, monster health and monster damage per level.",
+    stats: { trapDmg: 0.02, monsterHp: 0.02, monsterDmg: 0.02 },
+  },
+  {
+    id: "emberheart",
+    name: "Ember Heart",
+    text: "Heart upgrades cost 5% less per level (compounding).",
+    stats: {},
+    heartDisc: 0.95,
+    max: 20,
+  },
+  {
+    id: "kindled",
+    name: "Kindled Forge",
+    text: "Forge levels cost 5% less per level (compounding).",
+    stats: {},
+    forgeDisc: 0.95,
+    max: 20,
+  },
+  {
+    id: "wisdom",
+    name: "Ashen Wisdom",
+    text: "+6% infamy earned per level.",
+    stats: { infamy: 0.06 },
+  },
+  {
+    id: "dominion",
+    name: "Dominion",
+    text: "+3% power damage and +2% damage to elites and champions per level.",
+    stats: { powerDmg: 0.03, bossDmg: 0.02 },
+  },
+  {
+    id: "tithes",
+    name: "Ashen Tithes",
+    text: "+3 starting gold and +2% dawn tribute per level.",
+    stats: { startGold: 3, tribute: 0.02 },
+    max: 25,
+  },
+];
+export const flameDef = (id: string) => FLAMES.find((f) => f.id === id);
+/** Embers for the next level of a flame: 1, 2, 3… */
+export function flameCost(def: FlameDef, level: number) {
+  if (def.max !== undefined && level >= def.max) return null;
+  return level + 1;
+}
+export function buyFlame(p: MetaProfile, id: string) {
+  const d = flameDef(id);
+  if (!d) return false;
+  const lv = p.flames[id] ?? 0;
+  const cost = flameCost(d, lv);
+  if (cost === null || p.embers < cost) return false;
+  p.embers -= cost;
+  p.flames[id] = lv + 1;
+  return true;
+}
+/** Price multipliers from the flames. */
+export function heartDiscount(p: Pick<MetaProfile, "flames">) {
+  let m = 1;
+  for (const d of FLAMES)
+    if (d.heartDisc) m *= Math.pow(d.heartDisc, p.flames[d.id] ?? 0);
+  return m;
+}
+export function forgeDiscount(p: Pick<MetaProfile, "flames">) {
+  let m = 1;
+  for (const d of FLAMES)
+    if (d.forgeDisc) m *= Math.pow(d.forgeDisc, p.flames[d.id] ?? 0);
+  return m;
+}
+
+// ---------------- trophies (rules v7) ----------------
+/** What each champion's trophy grants per siege level cleared. */
+export const TROPHIES: Record<
+  ChampionId,
+  { name: string; stat: MetaStat; per: number; flavor: string }
+> = {
+  paladin: {
+    name: "Aldric's Halo",
+    stat: "monsterHp",
+    per: 0.015,
+    flavor: "The holy light that kept him standing now feeds your creatures.",
+  },
+  archmage: {
+    name: "Veyla's Focus",
+    stat: "powerDmg",
+    per: 0.03,
+    flavor: "A crystal that still hums with stolen spellcraft.",
+  },
+  warlord: {
+    name: "Grukk's Tusk",
+    stat: "monsterDmg",
+    per: 0.015,
+    flavor: "Snapped off mid war-cry, and still angry about it.",
+  },
+  thane: {
+    name: "Thane's Pickaxe",
+    stat: "trapDmg",
+    per: 0.015,
+    flavor: "He tunnelled to your hoard. Now it tunnels into heroes.",
+  },
+  shade: {
+    name: "Nyx's Veil",
+    stat: "fireDmg",
+    per: 0.02,
+    flavor: "Smoke that never settles, and burns hotter for it.",
+  },
+  revenant: {
+    name: "The Hollow Crown",
+    stat: "souls",
+    per: 0.03,
+    flavor: "The crown that raised the dead now gathers their souls.",
+  },
+  witch: {
+    name: "Morrigan's Cauldron",
+    stat: "bossDmg",
+    per: 0.02,
+    flavor: "Her jinxes boil in it, turned against her own kind.",
+  },
+};
+export const trophyLevel = (p: Pick<MetaProfile, "trophies">, c: string) =>
+  p.trophies[c] ?? 0;
+export const trophyTotal = (p: Pick<MetaProfile, "trophies">) =>
+  Object.values(p.trophies).reduce((a, v) => a + (v ?? 0), 0);
+
 // ---------------- Soul Well ----------------
 /** Hours of output the well holds before it stops filling. */
 export const WELL_HOURS = 12;
@@ -1097,6 +1434,16 @@ export function metaBonus(p: MetaProfile): RunMeta {
       if (LEGENDS[it.legend].key) keys.add(LEGENDS[it.legend].key!);
     }
   }
+  // Rules v7: Eternal Flames and siege trophies.
+  for (const d of FLAMES) {
+    const lv = p.flames?.[d.id] ?? 0;
+    if (!lv) continue;
+    for (const [k, v] of Object.entries(d.stats)) add(s, k as MetaStat, v * lv);
+  }
+  for (const [c, t] of Object.entries(TROPHIES)) {
+    const lv = p.trophies?.[c] ?? 0;
+    if (lv) add(s, t.stat, t.per * lv);
+  }
   for (const k of STAT_IDS) {
     const cap = STATS[k].cap;
     if (cap !== undefined && (s[k] ?? 0) > cap) s[k] = cap;
@@ -1124,7 +1471,7 @@ type Owner = MetaProfile & { mastery: Record<string, number> };
 export function buyHeart(p: MetaProfile, id: string) {
   const d = heartDef(id);
   if (!d || infamyLevel(p.infamyXp).level < d.infamy) return false;
-  const cost = heartCost(d, p.heart[id] ?? 0);
+  const cost = heartCost(d, p.heart[id] ?? 0, heartDiscount(p));
   if (cost === null || p.souls < cost) return false;
   p.souls -= cost;
   p.heart[id] = (p.heart[id] ?? 0) + 1;
@@ -1133,7 +1480,7 @@ export function buyHeart(p: MetaProfile, id: string) {
 export function forgePiece(p: Owner, id: PieceId) {
   const level = p.forge[id] ?? 0;
   if (level >= forgeCap(p.mastery[id] ?? 0)) return false;
-  const cost = forgeCost(level);
+  const cost = forgeCost(level, forgeDiscount(p));
   if (p.souls < cost) return false;
   p.souls -= cost;
   p.forge[id] = level + 1;

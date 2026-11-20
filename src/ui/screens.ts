@@ -43,6 +43,8 @@ import {
   type TrialDef,
 } from "../game/trials";
 import type { Profile } from "../game/profile";
+import { siegesVisible } from "./sieges";
+import { trophyTotal } from "../game/meta";
 import {
   ASCENDANT_HEAT,
   CROWNS,
@@ -203,6 +205,11 @@ export interface TitleOpts {
   /** Souls waiting in the Soul Well (null: not open yet). */
   well: number | null;
   onWell(): void;
+  /** Rules v7. */
+  onSieges(): void;
+  onRivals(): void;
+  /** Expeditions home and waiting to be collected. */
+  expeditionsReady: number;
 }
 export function titleScreen(o: TitleOpts) {
   const p = o.profile;
@@ -324,6 +331,25 @@ export function titleScreen(o: TitleOpts) {
           o.onWorkshop,
           "btn tile",
         ),
+        siegesVisible(p)
+          ? btn(
+              h(
+                "span",
+                {},
+                icon("sword"),
+                h("b", {}, "Sieges"),
+                h(
+                  "small",
+                  {},
+                  trophyTotal(p)
+                    ? `${trophyTotal(p)} levels cleared`
+                    : "Endless boss ladders",
+                ),
+              ),
+              o.onSieges,
+              "btn tile siege-tile",
+            )
+          : null,
       ),
       p.runs > 0
         ? h(
@@ -341,12 +367,12 @@ export function titleScreen(o: TitleOpts) {
                   h(
                     "small",
                     {},
-                    `${fmt(p.souls)} souls · Infamy ${infamyLevel(p.infamyXp).level}`,
+                    `${fmt(p.souls)} souls · Infamy ${infamyLevel(p.infamyXp).level}${o.expeditionsReady ? ` · ${o.expeditionsReady} expedition${o.expeditionsReady > 1 ? "s" : ""} home` : ""}`,
                   ),
                 ),
               ),
               o.onSanctum,
-              `btn sanctum-btn${sanctumAlert(p) ? " alert" : ""}${p.seen.includes("sanctumOpened") ? "" : " fresh"}`,
+              `btn sanctum-btn${sanctumAlert(p) || o.expeditionsReady ? " alert" : ""}${p.seen.includes("sanctumOpened") ? "" : " fresh"}`,
             ),
             o.well !== null
               ? btn(
@@ -372,6 +398,18 @@ export function titleScreen(o: TitleOpts) {
         { class: "row3 small" },
         btn(h("span", {}, icon("book"), " Codex"), o.onCodex, "btn ghost"),
         btn(h("span", {}, icon("hammer"), " Armory"), o.onArmory, "btn ghost"),
+        p.nemeses.length || p.vanquished.length
+          ? btn(
+              h(
+                "span",
+                {},
+                icon("skull"),
+                ` Rivals${p.nemeses.length ? ` ${p.nemeses.length}` : ""}`,
+              ),
+              o.onRivals,
+              "btn ghost rivals-btn",
+            )
+          : null,
         btn(
           h(
             "span",

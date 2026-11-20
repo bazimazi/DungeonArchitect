@@ -448,3 +448,78 @@ test("the Sanctum spends souls and empowers the next descent", async ({
   expect(trap).toBeGreaterThan(0);
   expect(errors).toEqual([]);
 });
+
+test("rules v7: sieges, the Rogues' Gallery, expeditions and embers", async ({
+  page,
+}) => {
+  const errors = await fresh(page);
+  await page.evaluate(() =>
+    localStorage.setItem(
+      "da.profile.v1",
+      JSON.stringify({
+        v: 2,
+        renown: 300,
+        runs: 12,
+        wins: 6,
+        maxDepth: 13,
+        bestDepth: 12,
+        tutorial: 99,
+        souls: 5000,
+        embers: 3,
+        rekindles: 1,
+        infamyXp: 20000,
+        bestiary: { paladin: 2, knight: 40 },
+        forge: { skeleton: 6 },
+        mastery: { skeleton: 200 },
+        nemeses: [
+          {
+            id: 1,
+            cls: "rogue",
+            name: "Vessa Quickfingers",
+            level: 3,
+            affixes: ["swift", "gilded"],
+            escapes: 3,
+            stolen: 6,
+            born: 4,
+          },
+        ],
+        nextNemesis: 2,
+        wellAt: Date.now(),
+      }),
+    ),
+  );
+  await page.reload();
+  // The Rogues' Gallery.
+  await page.locator(".rivals-btn").click();
+  await expect(page.locator(".rivals")).toContainText("Vessa Quickfingers");
+  await page.locator(".rivals [aria-label=Close]").click();
+  // The Sanctum's new tabs.
+  await page.locator(".sanctum-btn").click();
+  await page.locator('[data-tab="expeditions"]').click();
+  await page.locator(".exp-card .btn.primary").first().click();
+  await expect(page.locator(".exp-card.away")).toHaveCount(1);
+  await page.locator('[data-tab="embers"]').click();
+  await page.locator(".heart-card.flame .btn.primary").first().click();
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () =>
+          (window as unknown as { game: { profile: { embers: number } } }).game
+            .profile.embers,
+      ),
+    )
+    .toBe(2);
+  await page.locator(".sanctum [aria-label=Close]").click();
+  // A siege against Sir Aldric, level 1.
+  await page.locator(".siege-tile").click();
+  await expect(page.locator(".siege-card:not(.locked)")).toHaveCount(1);
+  await page.locator(".siege-card .btn.primary").click();
+  await page.getByText("Build", { exact: true }).click();
+  await expect(page.locator(".hud")).toHaveAttribute("data-mode", "build");
+  await expect(page.locator(".start-btn")).toContainText("Begin Siege");
+  await page.locator(".start-btn").click();
+  await finishRaid(page);
+  await expect(page.locator(".trial-result")).toBeVisible({ timeout: 10_000 });
+  await expect(page.locator(".trial-result .kicker")).toContainText("Siege");
+  expect(errors).toEqual([]);
+});

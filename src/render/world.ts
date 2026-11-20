@@ -1159,6 +1159,23 @@ export class Renderer {
       }
       ctx.globalAlpha = 1;
     }
+    // A nemesis burns with a red glow and a hovering skull mark.
+    if (h.nemesis && h.st.veil <= 0) {
+      ctx.globalCompositeOperation = "lighter";
+      ctx.globalAlpha = 0.3 + Math.sin(time * 5) * 0.1;
+      ctx.drawImage(this.lightSprite("#ff3d5a"), -0.65, -1.25, 1.3, 1.4);
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = "#ff3d5a";
+      ctx.beginPath();
+      ctx.moveTo(0, -1.02);
+      ctx.lineTo(0.09, -0.9);
+      ctx.lineTo(0, -0.78);
+      ctx.lineTo(-0.09, -0.9);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
     // A ward shimmers around its bearer until it breaks.
     if (h.ward > 0) {
       ctx.globalCompositeOperation = "lighter";
